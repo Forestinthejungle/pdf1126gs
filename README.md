@@ -40,6 +40,24 @@ filtrów plików, rozmiaru, okresu i (jeśli włączone) odrzucania wartości sk
   liczone dla całej przefiltrowanej serii.
 - Opcjonalna kolumna `ID` (także `ID zadania`, `Klucz`, `Nr`) jest pokazywana w dymkach.
 
+## Zrozumienie zmienności (reguły Western Electric)
+
+Na dole dashboardu (w obu zakładkach) są cztery wykresy ułożone jeden pod drugim. Wszystkie pokazują tę samą serię, średnią
+i granice ±3σ co karta X, z tą samą kolejnością zadań i skalą osi Y. Krok σ = (górna granica − średnia) ÷ 3, więc ±3σ to
+dokładnie granice karty X (liczone ze współczynnikiem 2,66), a linie ±1σ i ±2σ dzielą tę odległość na trzy równe części.
+Wszystkie porównania są ścisłe i liczone na wartościach przed zaokrągleniem. Każda reguła działa niezależnie.
+
+1. **Punkt poza granicami procesu** – punkt ściśle powyżej +3σ lub poniżej −3σ.
+2. **Dwa z trzech poza 2σ** – w oknie 3 kolejnych zadań (przesuwanym o 1) co najmniej 2 ściśle poza ±2σ po tej samej stronie.
+3. **Cztery z pięciu poza 1σ** – w oknie 5 kolejnych zadań co najmniej 4 ściśle poza ±1σ po tej samej stronie.
+4. **Osiem po jednej stronie średniej** – nieprzerwana seria ≥ 8 punktów ściśle po jednej stronie (punkt równy średniej
+   przerywa serię); cała seria to jedno zdarzenie, a ósmy punkt to moment wykrycia.
+
+Gdy granic nie da się wyznaczyć (np. mniej niż 2 zadania albo granice równe średniej), wykresy pokazują
+„Brak podstaw do wyznaczenia stref sygnału”; gdy seria jest krótsza niż 3, 5 lub 8 zadań – „Za mało zadań do oceny tej reguły”.
+Przybliżenie wykresów zmienia tylko widok. Opcjonalne kolumny `Zmiana kontekstu` i `Komentarz` (także `Uwagi`) są pokazywane
+w dymkach.
+
 ## Dodawanie i podmiana plików źródłowych
 
 1. Dodaj plik `.xlsx` w dowolnym miejscu repozytorium (albo zastąp istniejący). Przy deployu skrypt
