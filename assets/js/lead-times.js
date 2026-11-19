@@ -210,3 +210,15 @@ export function groupOverlaps(tasks) {
   }
   return [...map.values()];
 }
+
+/** Collapses percentile lines that share the same value into one labelled line, e.g. "P85 / P95". */
+export function mergePercentileLines(p) {
+  const lines = [];
+  for (const key of ['p50', 'p85', 'p95']) {
+    if (p[key] === null || p[key] === undefined) continue;
+    const same = lines.find((l) => Math.abs(l.value - p[key]) < 1e-9);
+    if (same) same.keys.push(key);
+    else lines.push({ keys: [key], value: p[key] });
+  }
+  return lines.map((l) => ({ ...l, label: l.keys.map((k) => k.toUpperCase()).join(' / ') }));
+}

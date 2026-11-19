@@ -1,1 +1,64 @@
-Testowy tekst
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Czas realizacji zadań – dashboard</title>
+  <link rel="stylesheet" href="assets/css/dashboard.css">
+</head>
+<body>
+  <main class="page" data-source="Lead Times - 2024-25.xlsx">
+    <header class="page-header">
+      <h1>Czas realizacji zadań</h1>
+      <p class="subtitle">Każdy punkt to jedno ukończone zadanie. Percentyle liczone są z tej samej próby, którą widać na wykresie.</p>
+    </header>
+
+    <section class="controls" aria-label="Filtry">
+      <fieldset class="size-filter">
+        <legend>Rozmiar</legend>
+        <div class="segmented">
+          <label><input type="radio" name="size" value="ALL" checked><span>Wszystkie</span></label>
+          <label><input type="radio" name="size" value="S"><span>S</span></label>
+          <label><input type="radio" name="size" value="M"><span>M</span></label>
+          <label><input type="radio" name="size" value="L"><span>L</span></label>
+        </div>
+      </fieldset>
+
+      <div class="period">
+        <label for="period" class="period-label">Okres danych do prognozy: <strong id="period-name">Cały okres</strong></label>
+        <input id="period" type="range" min="0" max="0" step="1" value="0">
+        <div class="period-ticks" id="period-ticks" aria-hidden="true"></div>
+        <p class="period-range" id="period-range"></p>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="Percentyle czasu realizacji" aria-live="polite">
+      <div class="stat"><span class="stat-name">P50</span><span class="stat-value" id="p50">–</span></div>
+      <div class="stat stat-key"><span class="stat-name">P85</span><span class="stat-value" id="p85">–</span></div>
+      <div class="stat"><span class="stat-name">P95</span><span class="stat-value" id="p95">–</span></div>
+      <div class="stat"><span class="stat-name">Próba</span><span class="stat-value" id="n">–</span></div>
+    </section>
+    <p class="warning" id="small-sample" hidden></p>
+    <p class="explain">P85 to historyczny próg, w którym mieści się około 85% czasów realizacji z wybranej próby. Można go użyć jako punktu odniesienia przy planowaniu podobnych zadań.</p>
+
+    <section class="chart-card" aria-label="Wykres punktowy czasu realizacji">
+      <ul class="legend" aria-label="Legenda">
+        <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="S"></path></svg>S</li>
+        <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="M"></path></svg>M</li>
+        <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="L"></path></svg>L</li>
+        <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="overlap-ring"></circle></svg>kilka zadań w jednym punkcie</li>
+      </ul>
+      <div class="chart" id="chart">
+        <p class="empty" id="empty" hidden>Brak zadań dla wybranego rozmiaru i okresu</p>
+        <div class="tooltip" id="tooltip" hidden></div>
+      </div>
+      <p class="sr-only" id="chart-live" aria-live="polite"></p>
+      <p class="hint">Najedź kursorem lub dotknij punktu, aby zobaczyć szczegóły. Klawiatura: przejdź do wykresu klawiszem Tab i użyj strzałek ← →.</p>
+    </section>
+
+    <footer class="source" id="source">Wczytywanie danych…</footer>
+  </main>
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
