@@ -22,6 +22,9 @@ więc łatwo porównać wyniki na tej samej próbie):
 - **Okres** – suwak z dwoma uchwytami (początek i koniec okresu), pola dat „Od/Do” oraz szybkie przyciski 3, 6, 9… miesięcy
   i „Cały okres”.
 - **Percentyle** – własne poziomy wpisywane ręcznie (0–100, np. `99,5`), do 8 naraz; domyślnie 50, 85 i 95. P85 jest wyróżniony.
+- **Ręczne wykluczanie punktów** – kliknięcie punktu na wykresie (na ekranie dotykowym: drugie dotknięcie, na klawiaturze:
+  Enter) wyklucza zadanie z próby; punkt zostaje na wykresie jako przekreślony i można go przywrócić kolejnym kliknięciem
+  albo z listy „Wykluczone ręcznie” pod wykresem.
 - **Odrzuć skrajne wartości** – przełącznik usuwa z wykresu i z obliczeń zadania spoza przedziału
   [Q1 − 1,5·IQR; Q3 + 1,5·IQR] bieżącej próby (reguła Tukeya, kwartyle liczone interpolacją liniową).
 

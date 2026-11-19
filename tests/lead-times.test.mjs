@@ -6,7 +6,7 @@ import { readXlsx } from '../assets/js/xlsx-reader.js';
 import {
   extractTasks, percentiles, percentileInc, percentileNearestRank, buildPeriods, selectSample, groupOverlaps,
   mergePercentileLines, parsePolishDate, excelSerialToUtc, normalizeSize, normalizeLevels, removeOutliers,
-  combineImports,
+  combineImports, taskKey, splitExcluded,
 } from '../assets/js/lead-times.js';
 
 const iso = (t) => new Date(t).toISOString().slice(0, 10);
@@ -192,4 +192,16 @@ test('combining imports tags files, renumbers ids and reports units', () => {
   assert.equal(ac.unit, null);
   assert.equal(ac.mixedUnits, true);
   assert.deepEqual(combineImports([]).tasks, []);
+});
+
+test('manual exclusion is keyed by file and row, so it survives re-combining imports', () => {
+  const a = { name: 'a.xlsx', tasks: [{ id: 0, rowNumber: 2, lead: 1 }, { id: 1, rowNumber: 3, lead: 2 }] };
+  const b = { name: 'b.xlsx', tasks: [{ id: 0, rowNumber: 2, lead: 3 }] };
+  const excluded = new Set([taskKey({ file: 'b.xlsx', rowNumber: 2 })]);
+  const both = splitExcluded(combineImports([a, b]).tasks, excluded);
+  assert.deepEqual(both.kept.map((t) => t.lead), [1, 2]);
+  assert.deepEqual(both.excluded.map((t) => t.lead), [3]);
+  // Same row number in another file is not affected; ids change but the key does not.
+  const onlyB = splitExcluded(combineImports([b]).tasks, excluded);
+  assert.deepEqual([onlyB.kept.length, onlyB.excluded.length], [0, 1]);
 });

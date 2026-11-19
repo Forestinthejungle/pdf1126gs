@@ -220,6 +220,19 @@ export function removeOutliers(tasks, k = 1.5) {
   return { kept, removed, fences: { low, high } };
 }
 
+/** Stable task identity across file re-selection: source file + sheet row. */
+export function taskKey(task) {
+  return `${task.file ?? ''}|${task.rowNumber}`;
+}
+
+/** Splits tasks into those kept and those excluded by hand (by taskKey). */
+export function splitExcluded(tasks, excludedKeys) {
+  const kept = [];
+  const excluded = [];
+  for (const t of tasks) (excludedKeys.has(taskKey(t)) ? excluded : kept).push(t);
+  return { kept, excluded };
+}
+
 /** Merges tasks from several imported files, tagging each task with its file and giving it a unique id. */
 export function combineImports(imports) {
   const tasks = [];

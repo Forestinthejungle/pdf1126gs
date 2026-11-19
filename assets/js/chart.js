@@ -48,7 +48,7 @@ function monthTicks(start, end, maxTicks) {
   return [];
 }
 
-export function createChart(container, { format, onActive }) {
+export function createChart(container, { format, onActive, onToggle }) {
   const svg = el('svg', {
     class: 'plot',
     tabindex: '0',
@@ -148,9 +148,10 @@ export function createChart(container, { format, onActive }) {
     layout = state.groups.map((g, i) => {
       const cx = x(g.date);
       const cy = y(g.lead);
-      const node = el('g', { class: 'marker-group', transform: `translate(${cx} ${cy})` }, pts);
+      const node = el('g', { class: `marker-group${g.excluded ? ' excluded' : ''}`, transform: `translate(${cx} ${cy})` }, pts);
       for (const task of g.tasks) el('path', { class: 'marker', 'data-shape': task.size, d: shapePath(task.size, r) }, node);
       if (g.tasks.length > 1) el('circle', { class: 'overlap-ring', r: r + 3.5 }, node);
+      if (g.excluded) el('path', { class: 'excluded-cross', d: `M${-r},${-r}L${r},${r}M${r},${-r}L${-r},${r}` }, node);
       return { cx, cy, node, group: g, index: i };
     });
     if (active >= layout.length) active = -1;
@@ -174,6 +175,12 @@ export function createChart(container, { format, onActive }) {
       lines.push(`Rozmiary: ${Object.entries(counts).map(([s, c]) => (c > 1 ? `${s} ×${c}` : s)).join(', ')}`);
       lines.push(`${state.leadName}: ${format.number(group.lead)}`);
       if (state.showFile) lines.push(`Pliki: ${[...new Set(group.tasks.map((t) => t.file))].join(', ')}`);
+    }
+    if (onToggle) {
+      const many = group.tasks.length > 1;
+      lines.push(group.excluded
+        ? `Wykluczone ręcznie – kliknij lub Enter, aby przywrócić`
+        : `Kliknij lub Enter, aby wykluczyć ${many ? 'te zadania' : 'to zadanie'} z próby`);
     }
     lines.forEach((text, i) => {
       if (i) tooltip.append(document.createElement('br'));
@@ -214,11 +221,30 @@ export function createChart(container, { format, onActive }) {
     return best;
   }
 
+  function toggle(index) {
+    if (index < 0 || !onToggle) return;
+    onToggle(layout[index].group);
+  }
+
+  let pressed = -1;
   svg.addEventListener('pointermove', (e) => {
-    if (e.pointerType === 'mouse') highlight(nearest(e, 24), false);
+    if (e.pointerType !== 'mouse') return;
+    const i = nearest(e, 24);
+    svg.classList.toggle('over-point', i >= 0);
+    highlight(i, false);
   });
   svg.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'mouse') highlight(nearest(e, 32), false);
+    if (e.pointerType === 'mouse') { pressed = nearest(e, 24); return; }
+    // Touch: the first tap shows details, a second tap on the same point toggles it.
+    const i = nearest(e, 32);
+    if (i >= 0 && i === active) toggle(i);
+    else highlight(i, false);
+  });
+  svg.addEventListener('pointerup', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    const i = nearest(e, 24);
+    if (i >= 0 && i === pressed) toggle(i);
+    pressed = -1;
   });
   svg.addEventListener('pointerleave', (e) => {
     if (e.pointerType === 'mouse') highlight(-1);
@@ -236,6 +262,7 @@ export function createChart(container, { format, onActive }) {
     };
     if (e.key in keys) { e.preventDefault(); highlight(keys[e.key]); }
     else if (e.key === 'Escape') highlight(-1);
+    else if ((e.key === 'Enter' || e.key === ' ' || e.key === 'Delete') && active >= 0) { e.preventDefault(); toggle(active); }
   });
   svg.addEventListener('blur', () => highlight(-1));
 
