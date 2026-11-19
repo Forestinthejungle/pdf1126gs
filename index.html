@@ -14,6 +14,14 @@
       <p class="subtitle">Każdy punkt to jedno ukończone zadanie. Percentyle liczone są z tej samej próby, którą widać na wykresie.</p>
     </header>
 
+    <div class="tabs" role="tablist" aria-label="Metoda liczenia percentyli">
+      <button type="button" role="tab" id="tab-inc" data-method="inc" aria-controls="dashboard" aria-selected="true">Interpolacja liniowa <small>(Excel PERCENTILE.INC)</small></button>
+      <button type="button" role="tab" id="tab-nearest-rank" data-method="nearest-rank" aria-controls="dashboard" aria-selected="false" tabindex="-1">Nearest rank <small>(najbliższa ranga)</small></button>
+    </div>
+
+    <div id="dashboard" role="tabpanel" aria-labelledby="tab-inc">
+    <p class="method-note" id="method-note"></p>
+
     <section class="controls" aria-label="Filtry">
       <fieldset class="size-filter">
         <legend>Rozmiar</legend>
@@ -56,6 +64,7 @@
       <p class="sr-only" id="chart-live" aria-live="polite"></p>
       <p class="hint">Najedź kursorem lub dotknij punktu, aby zobaczyć szczegóły. Klawiatura: przejdź do wykresu klawiszem Tab i użyj strzałek ← →.</p>
     </section>
+    </div>
 
     <footer class="source" id="source">Wczytywanie danych…</footer>
   </main>

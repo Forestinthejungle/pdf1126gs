@@ -164,8 +164,21 @@ export function percentileInc(values, p) {
   return sorted[lo] + (h - lo) * (sorted[hi] - sorted[lo]);
 }
 
-export function percentiles(values) {
-  return { p50: percentileInc(values, 0.5), p85: percentileInc(values, 0.85), p95: percentileInc(values, 0.95) };
+/** Nearest-rank method: the smallest observed value with at least p of the sample at or below it. */
+export function percentileNearestRank(values, p) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  // Round off floating-point noise (e.g. 0.85 * 20 = 17.000000000000004) before taking the ceiling.
+  const rank = Math.max(1, Math.ceil(Math.round(p * sorted.length * 1e9) / 1e9));
+  return sorted[Math.min(rank, sorted.length) - 1];
+}
+
+export const PERCENTILE_METHODS = { inc: percentileInc, 'nearest-rank': percentileNearestRank };
+
+export function percentiles(values, method = 'inc') {
+  const fn = PERCENTILE_METHODS[method];
+  if (!fn) throw new Error(`Unknown percentile method: ${method}`);
+  return { p50: fn(values, 0.5), p85: fn(values, 0.85), p95: fn(values, 0.95) };
 }
 
 export function addMonthsUtc(t, months) {

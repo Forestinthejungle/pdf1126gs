@@ -23,6 +23,49 @@ const periodName = (p) => (p.months ? `ostatnie ${p.months} ${plural(p.months, '
 
 document.querySelectorAll('.legend [data-shape]').forEach((path) => path.setAttribute('d', shapePath(path.dataset.shape, 5.5)));
 
+const METHODS = {
+  inc: {
+    name: 'interpolacja liniowa',
+    note: 'Metoda: interpolacja liniowa, taka sama jak w Excelu (PERCENTILE.INC). Gdy percentyl wypada między dwoma zadaniami, wynik leży pomiędzy ich czasami, więc nie musi być czasem żadnego konkretnego zadania.',
+  },
+  'nearest-rank': {
+    name: 'nearest rank',
+    note: 'Metoda: nearest rank (najbliższa ranga). Wynikiem jest czas konkretnego zadania z próby: najmniejsza wartość, przy której co najmniej P% zadań ma czas nie dłuższy. Wyniki mogą się różnić od Excela (PERCENTILE.INC).',
+  },
+};
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+const methodFromHash = () => (Object.hasOwn(METHODS, location.hash.slice(1)) ? location.hash.slice(1) : 'inc');
+let method = methodFromHash();
+let onMethodChange = () => {};
+
+function setMethod(next, { focus = false, updateHash = true } = {}) {
+  method = next;
+  for (const tab of tabs) {
+    const selected = tab.dataset.method === method;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected) {
+      $('dashboard').setAttribute('aria-labelledby', tab.id);
+      if (focus) tab.focus();
+    }
+  }
+  $('method-note').textContent = METHODS[method].note;
+  if (updateHash) history.replaceState(null, '', method === 'inc' ? location.pathname + location.search : `#${method}`);
+  onMethodChange();
+}
+
+tabs.forEach((tab, i) => {
+  tab.addEventListener('click', () => setMethod(tab.dataset.method));
+  tab.addEventListener('keydown', (e) => {
+    const target = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (target === undefined) return;
+    e.preventDefault();
+    setMethod(tabs[(target + tabs.length) % tabs.length].dataset.method, { focus: true });
+  });
+});
+window.addEventListener('hashchange', () => setMethod(methodFromHash(), { updateHash: false }));
+setMethod(method, { updateHash: false });
+
 async function load() {
   const res = await fetch(encodeURI(source), { cache: 'no-cache' });
   if (!res.ok) throw new Error(`Nie udało się pobrać pliku „${source}” (HTTP ${res.status}).`);
@@ -85,7 +128,7 @@ function init(data) {
     const size = document.querySelector('input[name="size"]:checked').value;
     const period = periods[Number(slider.value)];
     const sample = selectSample(tasks, size, period);
-    const p = sample.length ? percentiles(sample.map((t) => t.lead)) : { p50: null, p85: null, p95: null };
+    const p = sample.length ? percentiles(sample.map((t) => t.lead), method) : { p50: null, p85: null, p95: null };
     const n = sample.length;
 
     $('period-name').textContent = periodName(period);
@@ -110,7 +153,7 @@ function init(data) {
       groups,
       lines: n ? mergePercentileLines(p) : [],
       ariaLabel: n
-        ? `Wykres punktowy: ${tasksWord(n)}, ${sizeText}, ${periodName(period)}. P50 ${format.number(p.p50)}, P85 ${format.number(p.p85)}, P95 ${format.number(p.p95)}. Strzałki przełączają punkty.`
+        ? `Wykres punktowy: ${tasksWord(n)}, ${sizeText}, ${periodName(period)}. Percentyle (${METHODS[method].name}): P50 ${format.number(p.p50)}, P85 ${format.number(p.p85)}, P95 ${format.number(p.p95)}. Strzałki przełączają punkty.`
         : `Brak zadań dla wybranego rozmiaru i okresu (${sizeText}, ${periodName(period)}).`,
     });
   }
@@ -124,6 +167,7 @@ function init(data) {
     slider.value = e.key === 'Home' ? slider.min : slider.max;
     update();
   });
+  onMethodChange = update;
   update();
 }
 

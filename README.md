@@ -6,6 +6,15 @@ Interaktywny wykres punktowy czasów realizacji zadań, publikowany przez GitHub
 Strona jest statyczna (HTML + CSS + JavaScript bez zależności). Plik Excela jest wczytywany i parsowany
 bezpośrednio w przeglądarce, więc nie ma kroku budowania.
 
+## Metody liczenia percentyli
+
+Zakładki nad filtrami przełączają metodę liczenia P50 / P85 / P95 (filtry rozmiaru i okresu są wspólne,
+więc łatwo porównać wyniki na tej samej próbie):
+
+- **Interpolacja liniowa** – identyczna z funkcją Excela `PERCENTILE.INC` (domyślna).
+- **Nearest rank** – wartość zadania o randze `⌈p·n⌉` w posortowanej próbie; zawsze jest to czas konkretnego
+  zadania. Bezpośredni link: <https://forestinthejungle.github.io/pdf1126gs/#nearest-rank>.
+
 ## Podmiana pliku źródłowego
 
 1. Zastąp plik `Lead Times - 2024-25.xlsx` w katalogu głównym repozytorium nowym plikiem o **tej samej nazwie**

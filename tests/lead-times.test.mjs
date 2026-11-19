@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { deflateRawSync } from 'node:zlib';
 import { readXlsx } from '../assets/js/xlsx-reader.js';
 import {
-  extractTasks, percentiles, percentileInc, buildPeriods, selectSample, groupOverlaps,
+  extractTasks, percentiles, percentileInc, percentileNearestRank, buildPeriods, selectSample, groupOverlaps,
   mergePercentileLines, parsePolishDate, excelSerialToUtc, normalizeSize,
 } from '../assets/js/lead-times.js';
 
@@ -21,6 +21,17 @@ test('PERCENTILE.INC matches Excel on the two example S rows', () => {
   assert.equal(percentileInc([], 0.5), null);
   // Excel: =PERCENTILE.INC({1,2,3,4,10},0.85) = 6.4
   close(percentileInc([10, 1, 4, 3, 2], 0.85), 6.4);
+});
+
+test('nearest rank returns an observed value at rank ceil(p * n)', () => {
+  assert.deepEqual(percentiles([49, 48], 'nearest-rank'), { p50: 48, p85: 49, p95: 49 });
+  assert.equal(percentileNearestRank([], 0.5), null);
+  assert.equal(percentileNearestRank([7], 0.5), 7);
+  // 0.85 * 20 is 17.000000000000004 in floating point; the 17th value must still be chosen.
+  const twenty = Array.from({ length: 20 }, (_, i) => i + 1);
+  assert.equal(percentileNearestRank(twenty, 0.85), 17);
+  assert.equal(percentileNearestRank([10, 1, 4, 3, 2], 0.85), 10);
+  assert.equal(percentileNearestRank([10, 1, 4, 3, 2], 0.5), 3);
 });
 
 test('reads the real workbook: 36 tasks, Polish text dates, no unit', async () => {
