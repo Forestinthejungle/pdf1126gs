@@ -60,6 +60,24 @@ export function parseDateCell(cell, date1904 = false) {
   return null;
 }
 
+/**
+ * Time of day (ms since midnight) when the cell carries one: a fractional Excel serial or an ISO
+ * date-time such as "2024-07-15 10:30". Returns null for plain dates.
+ */
+export function parseTimeOfDay(cell) {
+  if (!cell) return null;
+  if (cell.type === 'number') {
+    if (!Number.isFinite(cell.value)) return null;
+    const ms = Math.round((cell.value - Math.floor(cell.value)) * 86400) * 1000;
+    return ms > 0 && ms < DAY ? ms : null;
+  }
+  if (cell.type !== 'string' && cell.type !== 'date') return null;
+  const m = /^\d{4}-\d{1,2}-\d{1,2}[t ](\d{1,2}):(\d{2})(?::(\d{2}))?/i.exec(String(cell.value).trim());
+  if (!m || +m[1] > 23 || +m[2] > 59 || +(m[3] || 0) > 59) return null;
+  const ms = ((+m[1] * 60 + +m[2]) * 60 + +(m[3] || 0)) * 1000;
+  return ms > 0 ? ms : null;
+}
+
 const SIZE_ALIASES = {
   S: ['s', 'small', 'maly', 'male', 'mala'],
   M: ['m', 'medium', 'sredni', 'srednie', 'srednia'],
@@ -88,6 +106,12 @@ function cellText(cell) {
   return cell && cell.type === 'string' ? fold(cell.value) : '';
 }
 
+function cellLabel(cell) {
+  if (!cell) return null;
+  const s = cell.type === 'string' ? cell.value.trim() : cell.type === 'number' ? String(cell.value) : '';
+  return s || null;
+}
+
 const UNIT_PATTERNS = [
   [/\b(dni|dzien|dniach|days?)\b/, 'dni'],
   [/\b(dni robocz\w*|business days?|working days?)\b/, 'dni robocze'],
@@ -106,19 +130,21 @@ export function detectUnit(header) {
 
 function findColumns(rows) {
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
-    const cols = { date: -1, size: -1, lead: -1 };
+    const cols = { date: -1, size: -1, lead: -1, id: -1 };
     rows[i].cells.forEach((cell, idx) => {
       const t = cellText(cell);
       if (!t) return;
       if (cols.date < 0 && /data|date|ukoncz/.test(t)) cols.date = idx;
       else if (cols.size < 0 && /rozmiar|t-?shirt|size/.test(t)) cols.size = idx;
       else if (cols.lead < 0 && /czas|lead|cycle/.test(t)) cols.lead = idx;
+      // Optional task identifier column, e.g. "ID", "ID zadania", "Klucz", "Nr zadania".
+      else if (cols.id < 0 && /^(id|key|klucz|nr|numer|identyfikator)\b|\bid\b/.test(t)) cols.id = idx;
     });
     if (cols.date >= 0 && cols.size >= 0 && cols.lead >= 0) {
       return { ...cols, headerIndex: i, leadHeader: rows[i].cells[cols.lead].value };
     }
   }
-  return { date: 0, size: 1, lead: 2, headerIndex: -1, leadHeader: null };
+  return { date: 0, size: 1, lead: 2, id: -1, headerIndex: -1, leadHeader: null };
 }
 
 /**
@@ -149,7 +175,17 @@ export function extractTasks(sheet) {
     if (size === null) problems.push('rozmiar');
     if (lead === null) problems.push('czas realizacji');
     if (problems.length) { skipped.push({ rowNumber: row.rowNumber, reason: `błędne pole: ${problems.join(', ')}` }); continue; }
-    tasks.push({ id: tasks.length, rowNumber: row.rowNumber, date, size, lead });
+    const time = parseTimeOfDay(row.cells[cols.date]);
+    tasks.push({
+      id: tasks.length,
+      rowNumber: row.rowNumber,
+      date,
+      size,
+      lead,
+      completedAt: date + (time ?? 0),
+      hasTime: time !== null,
+      taskId: cols.id >= 0 ? cellLabel(row.cells[cols.id]) : null,
+    });
   }
   return { tasks, skipped, unit: detectUnit(cols.leadHeader), leadHeader: cols.leadHeader };
 }
@@ -286,4 +322,55 @@ export function mergePercentileLines(list, keyLevel = KEY_LEVEL) {
     label: l.items.map((p) => p.label).join(' / '),
     highlight: l.items.some((p) => p.level === keyLevel),
   }));
+}
+
+/** Shewhart XmR scaling factors: natural process limits (E2) and the upper range limit (D4) for n = 2. */
+export const XMR_X_FACTOR = 2.66;
+export const XMR_MR_FACTOR = 3.267;
+
+/** Completion timestamp used for ordering: the time of day when the import provides it, otherwise the date. */
+export const completionTime = (task) => task.completedAt ?? task.date;
+
+/** Sorts tasks by completion date/time; ties keep their import order (stable). */
+export function orderByCompletion(tasks) {
+  return tasks
+    .map((task, order) => ({ task, order }))
+    .sort((a, b) => completionTime(a.task) - completionTime(b.task) || a.order - b.order)
+    .map((e) => e.task);
+}
+
+/**
+ * XmR (individuals and moving range) chart for one filtered series. Points are numbered 1…n in completion
+ * order; moving range i belongs to the second task of the pair (i = 2…n). Limits need at least two tasks.
+ * Signals are points strictly outside the limits (a point exactly on a limit is not a signal).
+ */
+export function computeXmR(tasks) {
+  const series = orderByCompletion(tasks);
+  const n = series.length;
+  const points = series.map((task, i) => ({ index: i + 1, task, value: task.lead, signal: null }));
+  const ranges = [];
+  for (let i = 1; i < n; i++) {
+    ranges.push({ index: i + 1, from: series[i - 1], to: series[i], value: Math.abs(series[i].lead - series[i - 1].lead), signal: null });
+  }
+  const mean = (list) => list.reduce((s, v) => s + v.value, 0) / list.length;
+  const xMean = n ? mean(points) : null;
+  const mrMean = ranges.length ? mean(ranges) : null;
+  const limits = mrMean === null ? null : {
+    x: { center: xMean, upper: xMean + XMR_X_FACTOR * mrMean, lower: xMean - XMR_X_FACTOR * mrMean },
+    mr: { center: mrMean, upper: XMR_MR_FACTOR * mrMean, lower: 0 },
+  };
+  if (limits) {
+    for (const p of points) p.signal = p.value > limits.x.upper ? 'high' : p.value < limits.x.lower ? 'low' : null;
+    for (const r of ranges) r.signal = r.value > limits.mr.upper ? 'high' : null;
+  }
+  return {
+    n,
+    points,
+    ranges,
+    xMean,
+    mrMean,
+    limits,
+    xSignals: points.filter((p) => p.signal),
+    mrSignals: ranges.filter((r) => r.signal),
+  };
 }
