@@ -95,6 +95,52 @@
       <p class="sr-only" id="chart-live" aria-live="polite"></p>
       <p class="hint">Najedź kursorem lub dotknij punktu, aby zobaczyć szczegóły. Klawiatura: przejdź do wykresu klawiszem Tab i użyj strzałek ← →.</p>
     </section>
+
+    <section class="xmr" id="xmr" aria-labelledby="xmr-title">
+      <h2 id="xmr-title">Karty kontrolne Shewharta (XmR)</h2>
+      <p class="xmr-tip">Zacznij od karty mR. Pokazuje duże skoki między kolejnymi zadaniami. Karta X pokazuje nietypowo krótkie lub długie czasy realizacji.</p>
+      <p class="xmr-scope" id="xmr-scope"></p>
+      <p class="xmr-skipped" id="xmr-skipped"></p>
+      <p class="warning" id="xmr-single" hidden>Na karcie X jest tylko jedno zadanie. Do obliczenia rozstępu kroczącego i granic procesu potrzeba co najmniej dwóch zadań.</p>
+      <div class="xmr-summary" id="xmr-summary" aria-live="polite"></div>
+      <details class="xmr-signals" id="xmr-signals" hidden>
+        <summary id="xmr-signals-title"></summary>
+        <ul id="xmr-signals-list"></ul>
+      </details>
+
+      <div class="chart-card xmr-card">
+        <div class="xmr-toolbar">
+          <p class="xmr-view" id="xmr-view"></p>
+          <div class="file-actions" role="group" aria-label="Przybliżenie kart XmR">
+            <button type="button" class="link-btn" data-zoom="left" aria-label="Przesuń widok do wcześniejszych zadań">◀ Wcześniej</button>
+            <button type="button" class="link-btn" data-zoom="in">+ Przybliż</button>
+            <button type="button" class="link-btn" data-zoom="out">− Oddal</button>
+            <button type="button" class="link-btn" data-zoom="right" aria-label="Przesuń widok do późniejszych zadań">Później ▶</button>
+            <button type="button" class="link-btn" data-zoom="reset">Cały zakres</button>
+          </div>
+        </div>
+        <ul class="legend" aria-label="Legenda kart XmR">
+          <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="S"></path></svg>S</li>
+          <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="M"></path></svg>M</li>
+          <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="L"></path></svg>L</li>
+          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-center" x1="0" x2="24" y1="0" y2="0"></line></svg>linia środkowa</li>
+          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-limit" x1="0" x2="24" y1="0" y2="0"></line></svg>granice procesu</li>
+          <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="signal-ring"></circle></svg>Sygnał do sprawdzenia</li>
+        </ul>
+        <h3 class="xmr-chart-title">X — Czas realizacji i naturalne granice procesu</h3>
+        <div class="chart xmr-chart" id="xmr-x-chart">
+          <p class="empty" id="xmr-x-empty" hidden></p>
+          <div class="tooltip" hidden></div>
+        </div>
+        <h3 class="xmr-chart-title">mR — Rozstęp kroczący</h3>
+        <div class="chart xmr-chart" id="xmr-mr-chart">
+          <p class="empty" id="xmr-mr-empty" hidden></p>
+          <div class="tooltip" hidden></div>
+        </div>
+        <p class="sr-only" id="xmr-live" aria-live="polite"></p>
+        <p class="hint">Najedź kursorem na punkt, aby zobaczyć szczegóły – to samo zadanie zaznacza się na obu kartach. Przeciągnij myszą po wykresie, aby przybliżyć wybrane zadania (dwuklik przywraca cały zakres). Klawiatura: Tab, strzałki ← →, klawisze + / − / 0.</p>
+      </div>
+    </section>
     </div>
 
     <footer class="source" id="source">Wczytywanie danych…</footer>
