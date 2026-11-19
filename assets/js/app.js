@@ -296,11 +296,18 @@ function renderLevelInputs(values) {
   const list = $('level-list');
   list.replaceChildren();
   values.forEach((v, i) => {
-    const item = document.createElement('span');
+    const item = document.createElement('li');
     item.className = 'level-item';
     const prefix = document.createElement('span');
+    prefix.className = 'level-prefix';
     prefix.textContent = 'P';
     prefix.setAttribute('aria-hidden', 'true');
+    const field = document.createElement('span');
+    field.className = 'level-field';
+    const suffix = document.createElement('span');
+    suffix.className = 'level-suffix';
+    suffix.textContent = '%';
+    suffix.setAttribute('aria-hidden', 'true');
     const input = document.createElement('input');
     input.type = 'text';
     input.inputMode = 'decimal';
@@ -311,14 +318,15 @@ function renderLevelInputs(values) {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'level-remove';
-    remove.textContent = '×';
+    remove.textContent = 'Usuń';
     remove.setAttribute('aria-label', `Usuń percentyl ${i + 1}`);
     remove.addEventListener('click', () => {
       item.remove();
       levelsChanged();
       list.querySelector('input')?.focus();
     });
-    item.append(prefix, input, remove);
+    field.append(input, suffix);
+    item.append(prefix, field, remove);
     list.append(item);
   });
   $('level-add').disabled = values.length >= MAX_LEVELS;
