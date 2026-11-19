@@ -1,9 +1,10 @@
 import { readXlsx } from './xlsx-reader.js';
 import {
   extractTasks, buildPeriods, selectSample, percentiles, groupOverlaps, mergePercentileLines,
-  normalizeLevels, removeOutliers, combineImports, DEFAULT_LEVELS, KEY_LEVEL,
+  normalizeLevels, removeOutliers, combineImports, computeXmR, DEFAULT_LEVELS, KEY_LEVEL,
 } from './lead-times.js';
 import { createChart, shapePath } from './chart.js';
+import { createXmrCharts } from './xmr-chart.js';
 
 const $ = (id) => document.getElementById(id);
 const page = document.querySelector('.page');
@@ -15,6 +16,13 @@ const MAX_LEVELS = 8;
 const numberFmt = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 2 });
 const dateFmt = new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 const format = { number: (v) => numberFmt.format(v), date: (t) => dateFmt.format(new Date(t)) };
+const fixed2Fmt = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const timeFmt = new Intl.DateTimeFormat('pl-PL', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+const xmrFormat = {
+  number: format.number,
+  fixed2: (v) => fixed2Fmt.format(v),
+  dateTime: (task) => (task.hasTime ? `${format.date(task.date)}, godz. ${timeFmt.format(new Date(task.completedAt))}` : format.date(task.date)),
+};
 
 function plural(n, one, few, many) {
   if (n === 1) return one;
@@ -164,6 +172,7 @@ function renderSource() {
 // ---------- Shared state (the same for both percentile tabs) ----------
 
 let pool = { tasks: [], unit: null, mixedUnits: false };
+let poolVersion = 0;
 let domain = null; // { start, end } of the selected files
 let range = null; // { start, end } chosen by the user
 let periods = [];
@@ -180,6 +189,7 @@ const fromIndex = (i) => domain.start + Number(i) * DAY;
 /** Recomputes the pooled data after the file selection changes, keeping the user's range when possible. */
 function dataChanged() {
   pool = combineImports(imports.filter((i) => selected.has(i.id)));
+  poolVersion++;
   const prevDomain = domain;
   if (pool.tasks.length) {
     const dates = pool.tasks.map((t) => t.date);
@@ -439,6 +449,137 @@ function update() {
     ariaLabel: n
       ? `Wykres punktowy: ${tasksWord(n)}, ${sizeText}, ${rangeText}.${pText ? ` Percentyle (${METHODS[method].name}): ${pText}.` : ''} Strzałki przełączają punkty.`
       : `Brak zadań dla wybranego rozmiaru i okresu (${sizeText}, ${rangeText}).`,
+  });
+
+  renderXmr({ sample, sizeText, rangeText, dropOutliers, removedCount: removed.length, emptyText: empty.textContent });
+}
+
+// ---------- XmR control charts (same filtered sample as the scatterplot) ----------
+
+const xmrCharts = createXmrCharts({
+  xContainer: $('xmr-x-chart'),
+  mrContainer: $('xmr-mr-chart'),
+  format: xmrFormat,
+  onActive: (text) => { $('xmr-live').textContent = text; },
+  onViewChange: (view, n) => {
+    const zoomed = n > 1 && (view.start > 1 || view.end < n);
+    $('xmr-view').textContent = !n ? ''
+      : zoomed ? `Widok: zadania ${view.start}–${view.end} z ${n}. Przybliżenie zmienia tylko widok – granice są liczone dla wszystkich ${tasksWord(n)}.`
+        : `Widok: wszystkie zadania (1–${n}).`;
+    for (const b of document.querySelectorAll('[data-zoom]')) {
+      const a = b.dataset.zoom;
+      b.disabled = n < 2 || (a === 'in' && view.end - view.start <= 1) || ((a === 'out' || a === 'reset') && !zoomed)
+        || (a === 'left' && view.start <= 1) || (a === 'right' && view.end >= n);
+    }
+  },
+});
+document.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => xmrCharts.zoom(b.dataset.zoom)));
+
+const rangesWord = (n) => `${n} ${plural(n, 'rozstęp', 'rozstępy', 'rozstępów')}`;
+
+function renderXmr({ sample, sizeText, rangeText, dropOutliers, removedCount, emptyText }) {
+  const xmr = computeXmR(sample);
+  const { n, limits } = xmr;
+  const unit = pool.unit || 'dni';
+  const f = xmrFormat.fixed2;
+
+  const active = imports.filter((i) => selected.has(i.id) && !i.error);
+  const skipped = active.flatMap((i) => i.skipped);
+  const blank = skipped.filter((s) => s.reason === 'pusty wiersz').length;
+  const invalid = skipped.length - blank;
+  $('xmr-skipped').textContent = !active.length ? ''
+    : `Pominięte rekordy: ${invalid} (brakująca lub niepoprawna data, rozmiar albo czas realizacji – np. ujemny lub nieliczbowy)${blank ? `; puste wiersze: ${blank}` : ''}.`;
+
+  const files = active.length > 1 ? `, pliki: ${active.map((i) => `„${i.name}”`).join(', ')}` : '';
+  const outliers = dropOutliers ? `, bez ${removedCount} ${plural(removedCount, 'wartości skrajnej', 'wartości skrajnych', 'wartości skrajnych')} (reguła Tukeya)` : '';
+  $('xmr-scope').textContent = range
+    ? `Granice obliczono dla: ${sizeText}, okres ${rangeText}${outliers}${files} – ${tasksWord(n)}, ${rangesWord(Math.max(n - 1, 0))}. Zmiana filtrów przelicza karty od nowa.`
+    : '';
+  $('xmr-single').hidden = n !== 1;
+
+  const summary = $('xmr-summary');
+  summary.replaceChildren();
+  const group = (title, items) => {
+    const box = document.createElement('div');
+    box.className = 'xmr-group';
+    const h = document.createElement('h3');
+    h.textContent = title;
+    const stats = document.createElement('div');
+    stats.className = 'stats xmr-stats';
+    for (const [name, value, note, cls] of items) {
+      const div = document.createElement('div');
+      div.className = `stat ${cls || ''}`;
+      const a = document.createElement('span');
+      a.className = 'stat-name';
+      a.textContent = name;
+      const b = document.createElement('span');
+      b.className = 'stat-value';
+      b.textContent = value;
+      div.append(a, b);
+      if (note) {
+        const c = document.createElement('span');
+        c.className = 'stat-note';
+        c.textContent = note;
+        div.append(c);
+      }
+      stats.append(div);
+    }
+    box.append(h, stats);
+    summary.append(box);
+  };
+  const dash = '–';
+  group('Karta X', [
+    ['Linia środkowa (średnia)', n ? f(xmr.xMean) : dash, null, 'stat-key'],
+    ['Górna granica', limits ? f(limits.x.upper) : dash, null, 'stat-limit'],
+    ['Dolna granica', limits ? f(limits.x.lower) : dash, limits && limits.x.lower < 0 ? 'ujemna – poniżej zakresu wykresu (oś od 0)' : null, 'stat-limit'],
+    ['Zadania', String(n), null],
+    ['Sygnały', limits ? String(xmr.xSignals.length) : dash, null, xmr.xSignals.length ? 'stat-signal' : ''],
+  ]);
+  group('Karta mR', [
+    ['Linia środkowa (średni mR)', limits ? f(xmr.mrMean) : dash, null, 'stat-key'],
+    ['Górna granica (URL)', limits ? f(limits.mr.upper) : dash, null, 'stat-limit'],
+    ['Dolna granica (LRL)', limits ? f(limits.mr.lower) : dash, null, 'stat-limit'],
+    ['Rozstępy', String(xmr.ranges.length), null],
+    ['Sygnały', limits ? String(xmr.mrSignals.length) : dash, null, xmr.mrSignals.length ? 'stat-signal' : ''],
+  ]);
+
+  const signals = [
+    ...xmr.xSignals.map((p) => `Karta X: zadanie nr ${p.index}${p.task.taskId ? ` (ID ${p.task.taskId})` : ''}, ${xmrFormat.dateTime(p.task)} – ${f(p.value)} ${unit}, ${p.signal === 'high' ? `powyżej górnej granicy ${f(limits.x.upper)}` : `poniżej dolnej granicy ${f(limits.x.lower)}`}`),
+    ...xmr.mrSignals.map((r) => `Karta mR: zadania ${r.index - 1} → ${r.index} – różnica ${f(r.value)} ${unit} (${f(r.from.lead)} → ${f(r.to.lead)}), powyżej górnej granicy ${f(limits.mr.upper)}`),
+  ];
+  $('xmr-signals').hidden = !signals.length;
+  $('xmr-signals-title').textContent = `Sygnał do sprawdzenia: ${signals.length} ${plural(signals.length, 'punkt', 'punkty', 'punktów')} ściśle poza granicami`;
+  const list = $('xmr-signals-list');
+  list.replaceChildren(...signals.map((text) => {
+    const li = document.createElement('li');
+    li.textContent = text;
+    return li;
+  }));
+
+  const xEmpty = $('xmr-x-empty');
+  xEmpty.hidden = n > 0;
+  xEmpty.textContent = emptyText;
+  const mrEmpty = $('xmr-mr-empty');
+  mrEmpty.hidden = n > 1;
+  mrEmpty.textContent = n === 1 ? 'Do obliczenia rozstępu i granic potrzeba co najmniej dwóch zadań.' : emptyText;
+
+  const leadTitle = pool.unit ? `Czas realizacji (${pool.unit})` : 'Czas realizacji';
+  const limitsText = limits
+    ? ` Średnia ${f(xmr.xMean)}, granice ${f(limits.x.lower)} i ${f(limits.x.upper)}. Sygnały: ${xmr.xSignals.length}.`
+    : '';
+  const mrText = limits
+    ? ` Średni rozstęp ${f(xmr.mrMean)}, granice ${f(0)} i ${f(limits.mr.upper)}. Sygnały: ${xmr.mrSignals.length}.`
+    : '';
+  xmrCharts.render({
+    key: `${poolVersion}|${xmr.points.map((p) => p.task.id).join(',')}`,
+    xmr,
+    unit,
+    showFile: active.length > 1,
+    yTitle: { x: leadTitle, mr: pool.unit ? `Rozstęp (${pool.unit})` : 'Rozstęp kroczący' },
+    aria: {
+      x: n ? `Karta X: ${tasksWord(n)} w kolejności ukończenia.${limitsText} Strzałki przełączają punkty.` : 'Karta X: brak zadań.',
+      mr: n > 1 ? `Karta mR: ${rangesWord(n - 1)}.${mrText} Strzałki przełączają punkty.` : 'Karta mR: za mało zadań do obliczenia rozstępu.',
+    },
   });
 }
 

@@ -6,7 +6,7 @@ import { readXlsx } from '../assets/js/xlsx-reader.js';
 import {
   extractTasks, percentiles, percentileInc, percentileNearestRank, buildPeriods, selectSample, groupOverlaps,
   mergePercentileLines, parsePolishDate, excelSerialToUtc, normalizeSize, normalizeLevels, removeOutliers,
-  combineImports,
+  combineImports, computeXmR,
 } from '../assets/js/lead-times.js';
 
 const iso = (t) => new Date(t).toISOString().slice(0, 10);
@@ -192,4 +192,108 @@ test('combining imports tags files, renumbers ids and reports units', () => {
   assert.equal(ac.unit, null);
   assert.equal(ac.mixedUnits, true);
   assert.deepEqual(combineImports([]).tasks, []);
+});
+
+const day = (d) => Date.UTC(2025, 0, d);
+const series = (leads, size = 'S') => leads.map((lead, i) => ({ id: i, date: day(i + 1), size, lead }));
+const pl2 = (v) => new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+
+test('XmR: 8, 10, 9, 13 days – moving ranges, centre lines and limits', () => {
+  const x = computeXmR(series([8, 10, 9, 13]));
+  assert.deepEqual(x.points.map((p) => [p.index, p.value]), [[1, 8], [2, 10], [3, 9], [4, 13]]);
+  assert.deepEqual(x.ranges.map((r) => [r.index, r.value]), [[2, 2], [3, 1], [4, 4]]);
+  assert.deepEqual(
+    [x.xMean, x.limits.x.lower, x.limits.x.upper, x.mrMean, x.limits.mr.lower, x.limits.mr.upper].map(pl2),
+    ['10,00', '3,79', '16,21', '2,33', '0,00', '7,62'],
+  );
+  assert.equal(x.xSignals.length + x.mrSignals.length, 0);
+});
+
+test('XmR: nine 10-day tasks and one 30-day task signal on both charts', () => {
+  const x = computeXmR(series([...Array(9).fill(10), 30]));
+  // Equal consecutive times give MR = 0, which counts in the mean: 20 / 9.
+  close(x.mrMean, 20 / 9);
+  assert.deepEqual(x.xSignals.map((p) => [p.index, p.signal]), [[10, 'high']]);
+  assert.deepEqual(x.mrSignals.map((r) => [r.index, r.value]), [[10, 20]]);
+});
+
+test('XmR: a point exactly on a limit is not a signal; zero lead times are kept', () => {
+  const flat = computeXmR(series([5, 5, 5]));
+  assert.equal(flat.limits.x.upper, 5);
+  assert.equal(flat.limits.mr.upper, 0);
+  assert.equal(flat.xSignals.length + flat.mrSignals.length, 0);
+  const zeros = computeXmR(series([0, 0, 3]));
+  assert.equal(zeros.n, 3);
+  close(zeros.xMean, 1);
+  assert.ok(zeros.limits.x.lower < 0, 'negative lower limit kept as computed');
+});
+
+test('XmR: empty and single-task series have no limits', () => {
+  const none = computeXmR([]);
+  assert.deepEqual([none.n, none.ranges.length, none.limits, none.xMean], [0, 0, null, null]);
+  const one = computeXmR(series([7]));
+  assert.deepEqual([one.n, one.points[0].value, one.ranges.length, one.limits], [1, 7, 0, null]);
+});
+
+test('XmR: ordered by completion date and time, ties keep import order', () => {
+  const tasks = [
+    { id: 0, date: day(3), size: 'S', lead: 30 },
+    { id: 1, date: day(1), size: 'M', lead: 10 },
+    { id: 2, date: day(2), size: 'L', lead: 21, completedAt: day(2) + 15 * 3600e3, hasTime: true },
+    { id: 3, date: day(2), size: 'S', lead: 20, completedAt: day(2) + 9 * 3600e3, hasTime: true },
+    { id: 4, date: day(1), size: 'L', lead: 11 },
+  ];
+  const x = computeXmR(tasks);
+  assert.deepEqual(x.points.map((p) => p.task.id), [1, 4, 3, 2, 0]);
+  assert.deepEqual(x.ranges.map((r) => [r.from.id, r.to.id, r.value]), [[1, 4, 1], [4, 3, 9], [3, 2, 1], [2, 0, 9]]);
+  // The same tasks imported in reverse order give the same series, except for same-day ties.
+  const reversed = computeXmR([...tasks].reverse());
+  assert.deepEqual(reversed.points.map((p) => p.task.id), [4, 1, 3, 2, 0]);
+  close(reversed.xMean, x.xMean);
+});
+
+test('XmR: size filter recomputes pairs, means and limits from that size only', async () => {
+  const { tasks } = await real();
+  const all = computeXmR(selectSample(tasks, 'ALL', null));
+  for (const size of ['S', 'M', 'L']) {
+    const sample = selectSample(tasks, size, null);
+    const x = computeXmR(sample);
+    assert.equal(x.n, sample.length);
+    assert.ok(x.points.every((p) => p.task.size === size));
+    assert.ok(x.ranges.every((r) => r.from.size === size && r.to.size === size));
+    close(x.xMean, sample.reduce((s, t) => s + t.lead, 0) / sample.length);
+    assert.notEqual(x.limits.x.upper, all.limits.x.upper);
+  }
+  assert.equal(all.n, 36);
+  assert.ok(all.xSignals.some((p) => p.value === 415), 'the 415-day task is a signal');
+});
+
+test('XmR through the importer: unsorted dates, same-day tasks, time of day, task IDs', async () => {
+  const s = (r, v) => `<c r="${r}" t="inlineStr"><is><t>${v}</t></is></c>`;
+  const n = (r, v) => `<c r="${r}"><v>${v}</v></c>`;
+  const row = (r, id, date, size, lead) => `<row r="${r}">${s(`A${r}`, id)}${date}${s(`C${r}`, size)}${lead}</row>`;
+  const rows = [
+    `<row r="1">${s('A1', 'ID zadania')}${s('B1', 'Data ukończenia')}${s('C1', 'Deklarowany rozmiar (T-shirt)')}${s('D1', 'Czas realizacji')}</row>`,
+    row(2, 'T-4', s('B2', '4 Stycznia 2025'), 'S', n('D2', 13)),
+    row(3, 'T-3', n('B3', 45660.75), 'M', n('D3', 9)), // 2025-01-03 18:00
+    row(4, 'T-2', n('B4', 45660.25), 'S', n('D4', 10)), // 2025-01-03 06:00
+    row(5, 'T-1', s('B5', '2025-01-02'), 'L', n('D5', 8)),
+    row(6, 'T-x', s('B6', 'brak daty'), 'S', n('D6', 5)),
+    row(7, 'T-y', s('B7', '5 Stycznia 2025'), 'S', n('D7', -3)),
+    row(8, 'T-z', s('B8', '5 Stycznia 2025'), 'S', s('D8', 'abc')),
+    row(9, 'T-0', s('B9', '6 Stycznia 2025'), 'S', n('D9', 0)),
+  ].join('');
+  const file = zip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="Dane" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${rows}</sheetData></worksheet>`,
+  });
+  const { tasks, skipped } = extractTasks(await readXlsx(file));
+  assert.deepEqual(skipped.map((x) => x.rowNumber), [6, 7, 8]);
+  const x = computeXmR(tasks);
+  assert.deepEqual(x.points.map((p) => p.task.taskId), ['T-1', 'T-2', 'T-3', 'T-4', 'T-0']);
+  assert.deepEqual(x.points.map((p) => p.value), [8, 10, 9, 13, 0]);
+  assert.deepEqual(x.ranges.map((r) => r.value), [2, 1, 4, 13]);
+  assert.equal(x.points[1].task.hasTime, true);
+  assert.equal(new Date(x.points[2].task.completedAt).toISOString(), '2025-01-03T18:00:00.000Z');
 });

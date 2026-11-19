@@ -25,6 +25,21 @@ więc łatwo porównać wyniki na tej samej próbie):
 - **Odrzuć skrajne wartości** – przełącznik usuwa z wykresu i z obliczeń zadania spoza przedziału
   [Q1 − 1,5·IQR; Q3 + 1,5·IQR] bieżącej próby (reguła Tukeya, kwartyle liczone interpolacją liniową).
 
+## Karty kontrolne Shewharta (XmR)
+
+Pod wykresem punktowym (w obu zakładkach) są dwie zsynchronizowane karty: **X** (czas realizacji z naturalnymi
+granicami procesu) oraz **mR** (rozstęp kroczący). Liczone są z tej samej próby co wykres punktowy, czyli po zastosowaniu
+filtrów plików, rozmiaru, okresu i (jeśli włączone) odrzucania wartości skrajnych.
+
+- Zadania są ułożone rosnąco według daty ukończenia (i godziny, jeśli plik ją zawiera). Przy remisie zachowana jest
+  kolejność z importu. Oś X to kolejny numer zadania.
+- `MR[i] = |x[i] − x[i−1]|` (od drugiego zadania). Karta X: średnia ± 2,66 · średni mR. Karta mR: górna granica
+  3,267 · średni mR, dolna 0.
+- Punkty ściśle poza granicami są oznaczone jako „Sygnał do sprawdzenia”.
+- Przybliżenie (przeciągnięcie myszą, przyciski albo klawisze + / − / 0) zmienia tylko widok, a granice pozostają
+  liczone dla całej przefiltrowanej serii.
+- Opcjonalna kolumna `ID` (także `ID zadania`, `Klucz`, `Nr`) jest pokazywana w dymkach.
+
 ## Dodawanie i podmiana plików źródłowych
 
 1. Dodaj plik `.xlsx` w dowolnym miejscu repozytorium (albo zastąp istniejący). Przy deployu skrypt
