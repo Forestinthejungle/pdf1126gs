@@ -117,6 +117,27 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
     yt.textContent = model ? model.yTitle : '';
     el('rect', { class: 'plot-frame', x: m.left, y: m.top, width: iw, height: ih }, svg);
 
+    // Zone rules (1–3) are judged against thirds of the mean-to-limit distance, so the thirds are shaded
+    // explicitly on both sides of the mean; the run rule (4) only uses the mean and gets no zones.
+    const zoneRule = rule?.kind === 'window' && zones;
+    if (zoneRule) {
+      const zl = el('g', { class: 'we-zones', 'aria-hidden': 'true' }, svg);
+      for (const [side, edges] of [['high', zones.high], ['low', zones.low]]) {
+        for (let k = 1; k <= 3; k++) {
+          const lo = Math.max(0, Math.min(edges[k - 1], edges[k]));
+          const hi = Math.min(yTop, Math.max(edges[k - 1], edges[k]));
+          if (hi <= lo) continue;
+          // Thirds beyond the rule's own ±kσ line are where its points must fall.
+          const key = k > rule.zone ? ' we-third-key' : '';
+          el('rect', { class: `we-third we-third-${k}${key}`, 'data-side': side, x: m.left, width: iw, y: y(hi), height: y(lo) - y(hi) }, zl);
+          if (y(lo) - y(hi) >= 13) {
+            const t = el('text', { class: `we-third-label${key}`, x: m.left + iw - 6, y: (y(lo) + y(hi)) / 2, 'text-anchor': 'end', 'dominant-baseline': 'middle' }, zl);
+            t.textContent = `${k}/3`;
+          }
+        }
+      }
+    }
+
     // Matching windows / runs as light bands behind the points.
     const bandLayer = el('g', { class: 'we-bands', 'clip-path': `url(#${panel.clipId})` }, svg);
     if (rule?.events.length && !(rule.kind === 'window' && rule.window === 1)) {
@@ -136,15 +157,18 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
         { key: 'lower', val: lim.lower, cls: 'xmr-limit', name: ['Dolna granica (−3σ)', '−3σ'] },
       ];
       const k = rule?.kind === 'window' && rule.zone < 3 ? rule.zone : 0;
-      if (zones && k) {
-        lines.push({ val: zones.high[k], cls: 'we-zone', name: [`+${k}σ`, `+${k}σ`] });
-        lines.push({ val: zones.low[k], cls: 'we-zone', name: [`−${k}σ`, `−${k}σ`] });
+      if (zoneRule) {
+        for (const z of [2, 1]) {
+          const cls = z === k ? 'we-zone we-zone-key' : 'we-zone we-zone-minor';
+          lines.push({ val: zones.high[z], cls, label: z === k, name: [`+${z}σ`, `+${z}σ`] });
+          lines.push({ val: zones.low[z], cls, label: z === k, name: [`−${z}σ`, `−${z}σ`] });
+        }
       }
       const labels = [];
       for (const l of lines) {
-        if (l.val < 0) { offscale.push(`${l.name[0]}: ${format.fixed2(l.val)}`); continue; }
+        if (l.val < 0) { if (l.label !== false) offscale.push(`${l.name[0]}: ${format.fixed2(l.val)}`); continue; }
         el('line', { class: `xmr-line ${l.cls}`, x1: m.left, x2: m.left + iw, y1: y(l.val), y2: y(l.val) }, lg);
-        labels.push({ ...l, py: y(l.val), ty: y(l.val) });
+        if (l.label !== false) labels.push({ ...l, py: y(l.val), ty: y(l.val) });
       }
       labels.sort((a, b) => b.py - a.py);
       for (let i = 1; i < labels.length; i++) labels[i].ty = Math.min(labels[i].ty, labels[i - 1].ty - 28);
