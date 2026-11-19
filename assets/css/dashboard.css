@@ -25,6 +25,24 @@ body { margin: 0; line-height: 1.45; }
 .page-header h1 { margin: 0 0 4px; font-size: 1.6rem; font-weight: 650; letter-spacing: -0.01em; }
 .subtitle { margin: 0 0 16px; color: var(--muted); }
 
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; overflow-x: auto; }
+.tabs [role="tab"] {
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 10px 14px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tabs [role="tab"] small { font-weight: 400; }
+.tabs [role="tab"]:hover { color: var(--text); }
+.tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.tabs [role="tab"]:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: 6px 6px 0 0; }
+.method-note { margin: 0 0 12px; color: var(--muted); font-size: 0.9rem; max-width: 90ch; }
+
 .controls {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -163,6 +181,8 @@ legend, .period-label { display: block; font-size: 0.85rem; color: var(--muted);
   .page { padding: 14px 12px 24px; }
   .page-header h1 { font-size: 1.3rem; }
   .subtitle { font-size: 0.9rem; }
+  .tabs [role="tab"] { padding: 10px 10px 8px; }
+  .tabs [role="tab"] small { display: none; }
   .controls { grid-template-columns: 1fr; padding: 12px; }
   .segmented { display: flex; }
   .segmented label { flex: 1; }
