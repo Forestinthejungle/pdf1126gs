@@ -6,7 +6,7 @@ import { readXlsx } from '../assets/js/xlsx-reader.js';
 import {
   extractTasks, percentiles, percentileInc, percentileNearestRank, buildPeriods, selectSample, groupOverlaps,
   mergePercentileLines, parsePolishDate, excelSerialToUtc, normalizeSize, normalizeLevels, removeOutliers,
-  combineImports, computeXmR, signalZones, westernElectric, computeVariation,
+  combineImports, computeXmR, signalZones, westernElectric, computeVariation, ruleTasks, ruleClosest,
 } from '../assets/js/lead-times.js';
 
 const iso = (t) => new Date(t).toISOString().slice(0, 10);
@@ -349,6 +349,22 @@ test('rule 4: eight in a row strictly on one side of the mean', () => {
   // A longer run is one event; detection stays at its eighth point.
   const long = [19, 19, 18, 19, 17, 19, 18, 19, 19, 18, 25];
   assert.deepEqual(rule(long, 4).events.map((e) => [e.side, e.start, e.end, e.detectedAt]), [['low', 1, 10, 8]]);
+});
+
+test('rule tasks: points beyond the line in matching windows, every point of a run', () => {
+  // Overlapping windows 1–3 and 2–4: the in-window point 4 (20) is not beyond +2σ, so it is not listed.
+  assert.deepEqual(ruleTasks(rule([20, 29, 30, 20], 2)).map((t) => [t.index, t.side, t.events.length]), [[2, 'high', 2], [3, 'high', 2]]);
+  const long = [19, 19, 18, 19, 17, 19, 18, 19, 19, 18, 25];
+  assert.deepEqual(ruleTasks(rule(long, 4)).map((t) => t.index), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.deepEqual(ruleTasks(rule([21, 19], 1)), []);
+});
+
+test('rule closest: longest run and best window when a rule does not occur', () => {
+  const wr = (id) => westernElectric([], zones).rules[id - 1];
+  assert.deepEqual(ruleClosest([21, 19, 18, 20, 17, 16, 22], zones, wr(4)), { count: 2, start: 2, end: 3, side: 'low' });
+  assert.deepEqual(ruleClosest([20, 29, 20, 20, 11], zones, wr(2)), { count: 1, start: 1, end: 3, side: 'high' });
+  assert.equal(ruleClosest([20, 21, 19], zones, wr(3)), null);
+  assert.equal(ruleClosest([20, 20], zones, wr(4)), null, 'points on the mean form no run');
 });
 
 test('rule status: no basis for zones and too few tasks', () => {

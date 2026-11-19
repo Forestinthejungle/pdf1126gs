@@ -53,6 +53,11 @@ Wszystkie porównania są ścisłe i liczone na wartościach przed zaokrąglenie
 4. **Osiem po jednej stronie średniej** – nieprzerwana seria ≥ 8 punktów ściśle po jednej stronie (punkt równy średniej
    przerywa serię); cała seria to jedno zdarzenie, a ósmy punkt to moment wykrycia.
 
+Przy tytule każdej reguły jest etykieta **Zachodzi** / **Nie zachodzi** dla bieżących filtrów. Zadania spełniające regułę
+(punkt poza granicami, punkty ściśle za linią 2σ/1σ w pasujących oknach, wszystkie punkty serii) mają czerwoną obwódkę,
+a pozostałe punkty są przygaszone. Pod wykresem jest ich lista (w przybliżeniu także liczba w bieżącym widoku). Gdy reguła nie
+zachodzi, opis pokazuje, jak blisko była seria (najlepsze okno albo najdłuższa seria po jednej stronie średniej).
+
 Gdy granic nie da się wyznaczyć (np. mniej niż 2 zadania albo granice równe średniej), wykresy pokazują
 „Brak podstaw do wyznaczenia stref sygnału”; gdy seria jest krótsza niż 3, 5 lub 8 zadań – „Za mało zadań do oceny tej reguły”.
 Przybliżenie wykresów zmienia tylko widok. Opcjonalne kolumny `Zmiana kontekstu` i `Komentarz` (także `Uwagi`) są pokazywane

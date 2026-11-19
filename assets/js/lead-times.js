@@ -482,6 +482,52 @@ export function westernElectric(values, zones) {
   };
 }
 
+/**
+ * Tasks that satisfy a rule (1-based, ascending): for window rules the points strictly beyond the rule's
+ * line inside a matching window, for the run rule every point of a run. Each: { index, side, events }.
+ */
+export function ruleTasks(rule) {
+  const map = new Map();
+  for (const ev of rule?.events || []) {
+    const ids = rule.kind === 'run' ? Array.from({ length: ev.end - ev.start + 1 }, (_, k) => ev.start + k) : ev.matched;
+    for (const i of ids) {
+      if (!map.has(i)) map.set(i, { index: i, side: ev.side, events: [] });
+      map.get(i).events.push(ev);
+    }
+  }
+  return [...map.values()].sort((a, b) => a.index - b.index);
+}
+
+/**
+ * How close the series came to a window/run rule: the window with the most points beyond the rule's line
+ * on one side ({ count, start, end, side }), or the longest run on one side of the mean. Null if nothing.
+ */
+export function ruleClosest(values, zones, rule) {
+  if (!zones || !values.length) return null;
+  let best = null;
+  if (rule.kind === 'run') {
+    let start = 0;
+    let side = null;
+    values.forEach((v, i) => {
+      const s = v > zones.center ? 'high' : v < zones.center ? 'low' : null;
+      if (s !== side) { start = i; side = s; }
+      if (side && (!best || i - start + 1 > best.count)) best = { count: i - start + 1, start: start + 1, end: i + 1, side };
+    });
+    return best;
+  }
+  const w = Math.min(rule.window, values.length);
+  for (let s = 0; s + w <= values.length; s++) {
+    for (const side of ['high', 'low']) {
+      let count = 0;
+      for (let i = s; i < s + w; i++) {
+        if (side === 'high' ? values[i] > zones.high[rule.zone] : values[i] < zones.low[rule.zone]) count++;
+      }
+      if (count && (!best || count > best.count)) best = { count, start: s + 1, end: s + w, side };
+    }
+  }
+  return best;
+}
+
 /** Western Electric analysis on the X-chart series and limits of a computeXmR result. */
 export function computeVariation(xmr) {
   return westernElectric(xmr.points.map((p) => p.value), signalZones(xmr.limits?.x));
