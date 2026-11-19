@@ -125,12 +125,15 @@ legend, .period-label { display: block; font-size: 0.85rem; color: var(--muted);
 .file-loading { color: var(--muted); }
 .file-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
-.level-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
-.level-item { display: inline-flex; align-items: center; gap: 2px; font-weight: 600; }
-.level-item input { width: 4.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.level-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.level-item { display: grid; grid-template-columns: 1.2em 7.5em auto; align-items: center; gap: 8px; font-weight: 600; }
+.level-prefix { text-align: right; color: var(--muted); }
+.level-field { position: relative; display: block; }
+.level-item input { width: 100%; padding-right: 1.8em; text-align: right; font-variant-numeric: tabular-nums; }
+.level-suffix { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .level-item input[aria-invalid="true"] { border-color: #ffa198; }
-.level-remove { font: inherit; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 1.1rem; line-height: 1; border-radius: 4px; }
-.level-remove:hover { color: var(--text); }
+.level-remove { font: inherit; font-size: 0.8rem; font-weight: 400; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; justify-self: start; }
+.level-remove:hover { color: #ffa198; }
 .field-error { margin: 6px 0 0; font-size: 0.85rem; }
 .field-hint { margin: 6px 0 0; font-size: 0.8rem; color: var(--muted); max-width: 60ch; }
 
