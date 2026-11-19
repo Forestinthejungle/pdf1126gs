@@ -2,6 +2,7 @@ import { readXlsx } from './xlsx-reader.js';
 import {
   extractTasks, buildPeriods, selectSample, percentiles, groupOverlaps, mergePercentileLines,
   normalizeLevels, removeOutliers, combineImports, computeXmR, computeVariation, ruleTasks, ruleClosest, DEFAULT_LEVELS, KEY_LEVEL,
+  taskKey, splitExcluded,
 } from './lead-times.js';
 import { createChart, shapePath } from './chart.js';
 import { createXmrCharts } from './xmr-chart.js';
@@ -178,6 +179,7 @@ let domain = null; // { start, end } of the selected files
 let range = null; // { start, end } chosen by the user
 let periods = [];
 let levels = [...DEFAULT_LEVELS];
+const excludedKeys = new Set(); // tasks removed by hand (shared by both tabs)
 let loaded = false;
 
 const startInput = $('range-start');
@@ -374,7 +376,48 @@ renderLevelInputs(levels);
 
 // ---------- Rendering ----------
 
-const chart = createChart($('chart'), { format, onActive: (text) => { $('chart-live').textContent = text; } });
+function toggleExcluded(group) {
+  const keys = group.tasks.map(taskKey);
+  if (group.excluded) keys.forEach((k) => excludedKeys.delete(k));
+  else keys.forEach((k) => excludedKeys.add(k));
+  update({ keepActive: true });
+  const n = group.tasks.length;
+  $('chart-live').textContent = group.excluded
+    ? `Przywrócono ${tasksWord(n)} do próby.`
+    : `Wykluczono ${tasksWord(n)} z próby.`;
+}
+
+const chart = createChart($('chart'), {
+  format,
+  onActive: (text) => { $('chart-live').textContent = text; },
+  onToggle: toggleExcluded,
+});
+
+function renderExcluded() {
+  const box = $('excluded');
+  const list = pool.tasks.filter((t) => excludedKeys.has(taskKey(t))).sort((a, b) => a.date - b.date || a.lead - b.lead);
+  box.hidden = !list.length;
+  if (!list.length) return;
+  $('excluded-count').textContent = `Wykluczone ręcznie: ${tasksWord(list.length)}`;
+  const ul = $('excluded-list');
+  ul.replaceChildren();
+  for (const t of list) {
+    const li = document.createElement('li');
+    const text = `${format.date(t.date)} · ${t.size} · ${format.number(t.lead)}${selected.size > 1 ? ` · ${t.file}` : ''}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'link-btn';
+    btn.textContent = 'Przywróć';
+    btn.setAttribute('aria-label', `Przywróć zadanie: ${text}`);
+    btn.addEventListener('click', () => {
+      excludedKeys.delete(taskKey(t));
+      update();
+      ($('excluded-list').querySelector('button') || $('chart').querySelector('svg')).focus();
+    });
+    li.append(text, ' ', btn);
+    ul.append(li);
+  }
+}
 
 function renderStats(p, n) {
   const stats = $('stats');
@@ -395,15 +438,18 @@ function renderStats(p, n) {
   card('Próba', n === null ? '–' : tasksWord(n));
 }
 
-function update() {
+function update({ keepActive = false } = {}) {
   const size = document.querySelector('input[name="size"]:checked').value;
-  const raw = range ? selectSample(pool.tasks, size, range) : [];
+  const inFilter = range ? selectSample(pool.tasks, size, range) : [];
+  const { kept: raw, excluded: manual } = splitExcluded(inFilter, excludedKeys);
   const dropOutliers = $('outliers').checked;
   const { kept: sample, removed, fences } = dropOutliers ? removeOutliers(raw) : { kept: raw, removed: [], fences: null };
   const n = sample.length;
   const p = percentiles(sample.map((t) => t.lead), method, levels);
 
-  $('period-range').textContent = range ? `${format.date(range.start)} – ${format.date(range.end)} · ${tasksWord(n)} w próbie` : '';
+  $('period-range').textContent = range
+    ? `${format.date(range.start)} – ${format.date(range.end)} · ${tasksWord(n)} w próbie${manual.length ? ` (${manual.length} ${plural(manual.length, 'wykluczone', 'wykluczone', 'wykluczonych')} ręcznie)` : ''}`
+    : '';
   renderStats(p, range ? n : null);
 
   const warn = $('small-sample');
@@ -426,29 +472,33 @@ function update() {
     : 'Wpisz co najmniej jeden poziom percentyla, aby zobaczyć progi czasu realizacji.';
 
   const empty = $('empty');
-  empty.hidden = n > 0;
+  empty.hidden = n > 0 || manual.length > 0;
   empty.textContent = !loaded ? 'Wczytywanie danych…'
     : !selected.size ? 'Nie wybrano żadnego pliku importu.'
       : !pool.tasks.length ? 'Wybrane pliki nie zawierają poprawnych zadań.'
         : 'Brak zadań dla wybranego rozmiaru i okresu';
 
-  const groups = groupOverlaps(sample).sort((a, b) => a.date - b.date || a.lead - b.lead);
+  const groups = [
+    ...groupOverlaps(sample),
+    ...groupOverlaps(manual).map((g) => ({ ...g, excluded: true })),
+  ].sort((a, b) => a.date - b.date || a.lead - b.lead || Number(Boolean(a.excluded)) - Number(Boolean(b.excluded)));
+  renderExcluded();
   const sizeText = size === 'ALL' ? 'wszystkie rozmiary' : `rozmiar ${size}`;
   const leadName = 'Czas realizacji';
   const rangeText = range ? `${format.date(range.start)} – ${format.date(range.end)}` : 'brak okresu';
   const pText = p.filter((x) => x.value !== null).map((x) => `${x.label} ${format.number(x.value)}`).join(', ');
   const today = Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate());
-  chart.reset();
+  if (!keepActive) chart.reset();
   chart.render({
     xDomain: range ? [range.start, range.end] : [today - 90 * DAY, today],
-    yMax: n ? Math.max(...sample.map((t) => t.lead)) : Math.max(1, ...pool.tasks.map((t) => t.lead)),
+    yMax: n || manual.length ? Math.max(...sample.map((t) => t.lead), ...manual.map((t) => t.lead)) : Math.max(1, ...pool.tasks.map((t) => t.lead)),
     yTitle: pool.unit ? `${leadName} (${pool.unit})` : leadName,
     leadName,
     showFile: selected.size > 1,
     groups,
     lines: n ? mergePercentileLines(p) : [],
     ariaLabel: n
-      ? `Wykres punktowy: ${tasksWord(n)}, ${sizeText}, ${rangeText}.${pText ? ` Percentyle (${METHODS[method].name}): ${pText}.` : ''} Strzałki przełączają punkty.`
+      ? `Wykres punktowy: ${tasksWord(n)}, ${sizeText}, ${rangeText}.${manual.length ? ` Wykluczone ręcznie: ${manual.length}.` : ''}${pText ? ` Percentyle (${METHODS[method].name}): ${pText}.` : ''} Strzałki przełączają punkty, Enter wyklucza lub przywraca punkt.`
       : `Brak zadań dla wybranego rozmiaru i okresu (${sizeText}, ${rangeText}).`,
   });
 
@@ -779,8 +829,13 @@ function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
   });
 }
 
-document.querySelectorAll('input[name="size"]').forEach((r) => r.addEventListener('change', update));
-$('outliers').addEventListener('change', update);
+document.querySelectorAll('input[name="size"]').forEach((r) => r.addEventListener('change', () => update()));
+$('excluded-clear').addEventListener('click', () => {
+  excludedKeys.clear();
+  update();
+  $('chart').querySelector('svg').focus();
+});
+$('outliers').addEventListener('change', () => update());
 $('files-all').addEventListener('click', () => {
   imports.filter((i) => !i.error).forEach((i) => selected.add(i.id));
   renderFiles();
@@ -803,7 +858,7 @@ $('file-upload').addEventListener('change', async (e) => {
   renderFiles();
   dataChanged();
 });
-onMethodChange = update;
+onMethodChange = () => update();
 
 async function load() {
   const names = await listRepoFiles();

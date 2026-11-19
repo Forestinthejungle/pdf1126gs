@@ -87,13 +87,21 @@
         <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="M"></path></svg>M</li>
         <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="L"></path></svg>L</li>
         <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="overlap-ring"></circle></svg>kilka zadań w jednym punkcie</li>
+        <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><g class="marker-group excluded"><path class="marker" data-shape="S" d="M5.5,0A5.5,5.5 0 1,1 -5.5,0A5.5,5.5 0 1,1 5.5,0Z"></path><path class="excluded-cross" d="M-5.5,-5.5L5.5,5.5M5.5,-5.5L-5.5,5.5"></path></g></svg>wykluczone ręcznie (nie liczą się do percentyli)</li>
       </ul>
       <div class="chart" id="chart">
         <p class="empty" id="empty" hidden>Brak zadań dla wybranego rozmiaru i okresu</p>
         <div class="tooltip" id="tooltip" hidden></div>
       </div>
       <p class="sr-only" id="chart-live" aria-live="polite"></p>
-      <p class="hint">Najedź kursorem lub dotknij punktu, aby zobaczyć szczegóły. Klawiatura: przejdź do wykresu klawiszem Tab i użyj strzałek ← →.</p>
+      <p class="hint">Najedź kursorem lub dotknij punktu, aby zobaczyć szczegóły. <strong>Kliknij punkt</strong> (na ekranie dotykowym: dotknij go drugi raz), aby wykluczyć go z próby; kliknij ponownie, aby przywrócić. Klawiatura: Tab na wykres, strzałki ← → wybierają punkt, Enter wyklucza lub przywraca.</p>
+      <div class="excluded" id="excluded" hidden>
+        <div class="excluded-head">
+          <strong id="excluded-count"></strong>
+          <button type="button" class="link-btn" id="excluded-clear">Przywróć wszystkie</button>
+        </div>
+        <ul class="excluded-list" id="excluded-list"></ul>
+      </div>
     </section>
 
     <section class="xmr" id="xmr" aria-labelledby="xmr-title">

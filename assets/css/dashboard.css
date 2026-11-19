@@ -199,6 +199,15 @@ legend, .period-label { display: block; font-size: 0.85rem; color: var(--muted);
 .marker { fill-opacity: 0.85; stroke: var(--bg); stroke-width: 1; }
 .overlap-ring { fill: none; stroke: var(--text); stroke-width: 1.5; }
 .marker-group.active .marker { fill-opacity: 1; stroke: var(--text); stroke-width: 2; }
+.marker-group.excluded .marker { fill-opacity: 0.18; stroke: var(--muted); stroke-dasharray: 2 2; }
+.marker-group.excluded .overlap-ring { stroke: var(--muted); stroke-dasharray: 2 2; }
+.excluded-cross { stroke: #ffa198; stroke-width: 1.6; stroke-linecap: round; fill: none; }
+.marker-group.excluded.active .marker { fill-opacity: 0.35; stroke: var(--text); }
+.chart svg.plot.over-point { cursor: pointer; }
+.excluded { margin: 10px 4px 2px; padding: 8px 12px; border-left: 3px solid #ffa198; background: var(--panel-2); border-radius: 4px; font-size: 0.85rem; }
+.excluded[hidden] { display: none; }
+.excluded-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.excluded-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 .pline { stroke: var(--p-line); stroke-width: 1.5; stroke-dasharray: 6 4; }
 .pline.p85 { stroke: var(--p85); stroke-width: 2.5; stroke-dasharray: none; }
