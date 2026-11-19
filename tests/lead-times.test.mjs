@@ -5,18 +5,20 @@ import { deflateRawSync } from 'node:zlib';
 import { readXlsx } from '../assets/js/xlsx-reader.js';
 import {
   extractTasks, percentiles, percentileInc, percentileNearestRank, buildPeriods, selectSample, groupOverlaps,
-  mergePercentileLines, parsePolishDate, excelSerialToUtc, normalizeSize,
+  mergePercentileLines, parsePolishDate, excelSerialToUtc, normalizeSize, normalizeLevels, removeOutliers,
+  combineImports,
 } from '../assets/js/lead-times.js';
 
 const iso = (t) => new Date(t).toISOString().slice(0, 10);
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+const byLevel = (list) => Object.fromEntries(list.map((p) => [p.level, p.value]));
 const real = async () => extractTasks(await readXlsx(await readFile(new URL('../Lead Times - 2024-25.xlsx', import.meta.url))));
 
 test('PERCENTILE.INC matches Excel on the two example S rows', () => {
-  const p = percentiles([49, 48]);
-  close(p.p50, 48.5);
-  close(p.p85, 48.85);
-  close(p.p95, 48.95);
+  const p = byLevel(percentiles([49, 48]));
+  close(p[50], 48.5);
+  close(p[85], 48.85);
+  close(p[95], 48.95);
   assert.equal(percentileInc([7], 0.95), 7);
   assert.equal(percentileInc([], 0.5), null);
   // Excel: =PERCENTILE.INC({1,2,3,4,10},0.85) = 6.4
@@ -24,7 +26,7 @@ test('PERCENTILE.INC matches Excel on the two example S rows', () => {
 });
 
 test('nearest rank returns an observed value at rank ceil(p * n)', () => {
-  assert.deepEqual(percentiles([49, 48], 'nearest-rank'), { p50: 48, p85: 49, p95: 49 });
+  assert.deepEqual(byLevel(percentiles([49, 48], 'nearest-rank')), { 50: 48, 85: 49, 95: 49 });
   assert.equal(percentileNearestRank([], 0.5), null);
   assert.equal(percentileNearestRank([7], 0.5), 7);
   // 0.85 * 20 is 17.000000000000004 in floating point; the 17th value must still be chosen.
@@ -146,10 +148,48 @@ test('empty sample yields no percentiles and no lines', async () => {
   const sample = selectSample(tasks, 'L', period);
   assert.equal(sample.length, 0);
   assert.equal(percentileInc(sample.map((t) => t.lead), 0.85), null);
-  assert.deepEqual(mergePercentileLines({ p50: null, p85: null, p95: null }), []);
+  assert.deepEqual(mergePercentileLines(percentiles([])), []);
 });
 
 test('coinciding percentile lines share one label', () => {
-  const lines = mergePercentileLines({ p50: 10, p85: 20, p95: 20 });
-  assert.deepEqual(lines.map((l) => [l.label, l.value]), [['P50', 10], ['P85 / P95', 20]]);
+  const lines = mergePercentileLines([
+    { level: 50, label: 'P50', value: 10 }, { level: 85, label: 'P85', value: 20 }, { level: 95, label: 'P95', value: 20 },
+  ]);
+  assert.deepEqual(lines.map((l) => [l.label, l.value, l.highlight]), [['P50', 10, false], ['P85 / P95', 20, true]]);
+});
+
+test('custom percentile levels: parsed from user input, sorted, deduplicated, out-of-range dropped', () => {
+  assert.deepEqual(normalizeLevels(['95', ' 50 ', '99,5', 85, '85', '', '0', '101', 'abc', null]), [50, 85, 95, 99.5]);
+  const p = percentiles([1, 2, 3, 4, 10], 'inc', [25, 99.5]);
+  assert.deepEqual(p.map((x) => x.label), ['P25', 'P99,5']);
+  close(p[0].value, 2);
+  close(p[1].value, 9.88);
+  assert.deepEqual(percentiles([1, 2, 3], 'inc', []), []);
+});
+
+test('outlier removal uses Tukey fences on the given sample', async () => {
+  const tasks = [10, 12, 11, 13, 12, 11, 100].map((lead, id) => ({ id, lead }));
+  const { kept, removed, fences } = removeOutliers(tasks);
+  assert.deepEqual(removed.map((t) => t.lead), [100]);
+  assert.equal(kept.length, 6);
+  assert.ok(fences.high < 100 && fences.low < 10);
+  // Too few points: nothing is removed.
+  assert.equal(removeOutliers(tasks.slice(0, 3)).removed.length, 0);
+  // Real workbook: the 415-day task is an outlier for the whole period.
+  const all = await real();
+  assert.ok(removeOutliers(all.tasks).removed.some((t) => t.lead === 415));
+});
+
+test('combining imports tags files, renumbers ids and reports units', () => {
+  const a = { name: 'a.xlsx', unit: 'dni', tasks: [{ id: 0, lead: 1 }, { id: 1, lead: 2 }] };
+  const b = { name: 'b.xlsx', unit: null, tasks: [{ id: 0, lead: 3 }] };
+  const c = { name: 'c.xlsx', unit: 'tygodnie', tasks: [{ id: 0, lead: 4 }] };
+  const ab = combineImports([a, b]);
+  assert.deepEqual(ab.tasks.map((t) => [t.id, t.file]), [[0, 'a.xlsx'], [1, 'a.xlsx'], [2, 'b.xlsx']]);
+  assert.equal(ab.unit, 'dni');
+  assert.equal(ab.mixedUnits, false);
+  const ac = combineImports([a, c]);
+  assert.equal(ac.unit, null);
+  assert.equal(ac.mixedUnits, true);
+  assert.deepEqual(combineImports([]).tasks, []);
 });

@@ -175,10 +175,57 @@ export function percentileNearestRank(values, p) {
 
 export const PERCENTILE_METHODS = { inc: percentileInc, 'nearest-rank': percentileNearestRank };
 
-export function percentiles(values, method = 'inc') {
+export const DEFAULT_LEVELS = [50, 85, 95];
+/** Level emphasised in the stats and on the chart (when the user keeps it in the list). */
+export const KEY_LEVEL = 85;
+
+/** Turns user input (numbers or strings such as "99,5") into sorted, unique levels in (0, 100]. */
+export function normalizeLevels(levels) {
+  const out = [];
+  for (const raw of levels) {
+    if (raw === null || raw === undefined || String(raw).trim() === '') continue;
+    const v = typeof raw === 'number' ? raw : Number(String(raw).trim().replace(',', '.'));
+    if (!Number.isFinite(v) || v <= 0 || v > 100) continue;
+    const rounded = Math.round(v * 100) / 100;
+    if (!out.includes(rounded)) out.push(rounded);
+  }
+  return out.sort((a, b) => a - b);
+}
+
+export function percentileLabel(level) {
+  return `P${String(level).replace('.', ',')}`;
+}
+
+/** Returns one entry per level: { level, label, value } (value is null for an empty sample). */
+export function percentiles(values, method = 'inc', levels = DEFAULT_LEVELS) {
   const fn = PERCENTILE_METHODS[method];
   if (!fn) throw new Error(`Unknown percentile method: ${method}`);
-  return { p50: fn(values, 0.5), p85: fn(values, 0.85), p95: fn(values, 0.95) };
+  return levels.map((level) => ({ level, label: percentileLabel(level), value: fn(values, level / 100) }));
+}
+
+/**
+ * Tukey fences: drops tasks whose lead time lies outside [Q1 - k*IQR, Q3 + k*IQR] of the given sample.
+ * Quartiles always use linear interpolation, so both percentile tabs drop exactly the same tasks.
+ */
+export function removeOutliers(tasks, k = 1.5) {
+  if (tasks.length < 4) return { kept: tasks, removed: [], fences: null };
+  const leads = tasks.map((t) => t.lead);
+  const q1 = percentileInc(leads, 0.25);
+  const q3 = percentileInc(leads, 0.75);
+  const low = q1 - k * (q3 - q1);
+  const high = q3 + k * (q3 - q1);
+  const kept = [];
+  const removed = [];
+  for (const t of tasks) (t.lead < low || t.lead > high ? removed : kept).push(t);
+  return { kept, removed, fences: { low, high } };
+}
+
+/** Merges tasks from several imported files, tagging each task with its file and giving it a unique id. */
+export function combineImports(imports) {
+  const tasks = [];
+  for (const imp of imports) for (const t of imp.tasks) tasks.push({ ...t, id: tasks.length, file: imp.name });
+  const units = [...new Set(imports.map((i) => i.unit).filter(Boolean))];
+  return { tasks, unit: units.length === 1 ? units[0] : null, mixedUnits: units.length > 1 };
 }
 
 export function addMonthsUtc(t, months) {
@@ -191,7 +238,7 @@ export function addMonthsUtc(t, months) {
 }
 
 /**
- * Builds slider steps (3, 6, 9 … months) anchored at the latest completion date of the whole
+ * Builds quick-pick periods (3, 6, 9 … months) anchored at the latest completion date of the whole
  * data set, keeping only windows shorter than the full range, plus a final "whole period" step.
  */
 export function buildPeriods(tasks) {
@@ -225,13 +272,18 @@ export function groupOverlaps(tasks) {
 }
 
 /** Collapses percentile lines that share the same value into one labelled line, e.g. "P85 / P95". */
-export function mergePercentileLines(p) {
+export function mergePercentileLines(list, keyLevel = KEY_LEVEL) {
   const lines = [];
-  for (const key of ['p50', 'p85', 'p95']) {
-    if (p[key] === null || p[key] === undefined) continue;
-    const same = lines.find((l) => Math.abs(l.value - p[key]) < 1e-9);
-    if (same) same.keys.push(key);
-    else lines.push({ keys: [key], value: p[key] });
+  for (const p of list) {
+    if (p.value === null || p.value === undefined) continue;
+    const same = lines.find((l) => Math.abs(l.value - p.value) < 1e-9);
+    if (same) same.items.push(p);
+    else lines.push({ items: [p], value: p.value });
   }
-  return lines.map((l) => ({ ...l, label: l.keys.map((k) => k.toUpperCase()).join(' / ') }));
+  return lines.map((l) => ({
+    value: l.value,
+    levels: l.items.map((p) => p.level),
+    label: l.items.map((p) => p.label).join(' / '),
+    highlight: l.items.some((p) => p.level === keyLevel),
+  }));
 }

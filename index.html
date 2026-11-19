@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="assets/css/dashboard.css">
 </head>
 <body>
-  <main class="page" data-source="Lead Times - 2024-25.xlsx">
+  <main class="page" data-source="Lead Times - 2024-25.xlsx" data-manifest="import-files.json">
     <header class="page-header">
       <h1>Czas realizacji zadań</h1>
       <p class="subtitle">Każdy punkt to jedno ukończone zadanie. Percentyle liczone są z tej samej próby, którą widać na wykresie.</p>
@@ -23,6 +23,16 @@
     <p class="method-note" id="method-note"></p>
 
     <section class="controls" aria-label="Filtry">
+      <fieldset class="files">
+        <legend>Pliki importu</legend>
+        <ul class="file-list" id="file-list"><li class="file-loading">Wczytywanie listy plików…</li></ul>
+        <div class="file-actions">
+          <button type="button" class="link-btn" id="files-all">Zaznacz wszystkie</button>
+          <button type="button" class="link-btn" id="files-none">Odznacz wszystkie</button>
+          <label class="link-btn upload">Dodaj plik z dysku<input type="file" id="file-upload" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" multiple></label>
+        </div>
+      </fieldset>
+
       <fieldset class="size-filter">
         <legend>Rozmiar</legend>
         <div class="segmented">
@@ -33,22 +43,43 @@
         </div>
       </fieldset>
 
-      <div class="period">
-        <label for="period" class="period-label">Okres danych do prognozy: <strong id="period-name">Cały okres</strong></label>
-        <input id="period" type="range" min="0" max="0" step="1" value="0">
-        <div class="period-ticks" id="period-ticks" aria-hidden="true"></div>
+      <fieldset class="period">
+        <legend class="period-label">Okres danych do prognozy: <strong id="period-name">Cały okres</strong></legend>
+        <div class="dual-range" id="dual-range">
+          <div class="dual-track" aria-hidden="true"><div class="dual-fill" id="range-fill"></div></div>
+          <input type="range" id="range-start" min="0" max="0" step="1" value="0" aria-label="Początek okresu">
+          <input type="range" id="range-end" min="0" max="0" step="1" value="0" aria-label="Koniec okresu">
+        </div>
+        <div class="range-dates">
+          <label>Od <input type="date" id="date-start"></label>
+          <label>Do <input type="date" id="date-end"></label>
+        </div>
+        <div class="presets" id="presets" role="group" aria-label="Szybki wybór okresu"></div>
         <p class="period-range" id="period-range"></p>
-      </div>
+      </fieldset>
+
+      <fieldset class="levels">
+        <legend>Percentyle (%)</legend>
+        <div class="level-list" id="level-list"></div>
+        <div class="file-actions">
+          <button type="button" class="link-btn" id="level-add">+ Dodaj percentyl</button>
+          <button type="button" class="link-btn" id="level-reset">Przywróć domyślne (50, 85, 95)</button>
+        </div>
+        <p class="field-error" id="level-error" hidden></p>
+      </fieldset>
+
+      <fieldset class="outliers">
+        <legend>Wartości skrajne</legend>
+        <label class="switch"><input type="checkbox" role="switch" id="outliers"><span class="switch-track" aria-hidden="true"></span><span>Odrzuć skrajne wartości</span></label>
+        <p class="field-hint">Odrzucane są zadania z czasem spoza przedziału [Q1 − 1,5·IQR; Q3 + 1,5·IQR] bieżącej próby (reguła Tukeya). Znikają z wykresu i nie wchodzą do percentyli w obu zakładkach.</p>
+      </fieldset>
     </section>
 
-    <section class="stats" aria-label="Percentyle czasu realizacji" aria-live="polite">
-      <div class="stat"><span class="stat-name">P50</span><span class="stat-value" id="p50">–</span></div>
-      <div class="stat stat-key"><span class="stat-name">P85</span><span class="stat-value" id="p85">–</span></div>
-      <div class="stat"><span class="stat-name">P95</span><span class="stat-value" id="p95">–</span></div>
-      <div class="stat"><span class="stat-name">Próba</span><span class="stat-value" id="n">–</span></div>
-    </section>
+    <section class="stats" id="stats" aria-label="Percentyle czasu realizacji" aria-live="polite"></section>
     <p class="warning" id="small-sample" hidden></p>
-    <p class="explain">P85 to historyczny próg, w którym mieści się około 85% czasów realizacji z wybranej próby. Można go użyć jako punktu odniesienia przy planowaniu podobnych zadań.</p>
+    <p class="warning" id="mixed-units" hidden>Wybrane pliki podają czas realizacji w różnych jednostkach – porównuj wyniki ostrożnie.</p>
+    <p class="note" id="outlier-note" hidden></p>
+    <p class="explain" id="explain"></p>
 
     <section class="chart-card" aria-label="Wykres punktowy czasu realizacji">
       <ul class="legend" aria-label="Legenda">

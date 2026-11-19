@@ -127,7 +127,7 @@ export function createChart(container, { format, onActive }) {
     const overflow = m.top + 6 - Math.min(...labels.map((l) => l.ty), Infinity);
     if (overflow > 0) labels.forEach((l) => { l.ty += overflow; });
     for (const l of labels) {
-      const cls = l.keys.includes('p85') ? 'p85' : '';
+      const cls = l.highlight ? 'p85' : '';
       el('line', { class: `pline ${cls}`, x1: m.left, x2: m.left + iw, y1: l.py, y2: l.py }, pg);
       const t = el('text', {
         class: `plabel ${cls}`,
@@ -135,8 +135,9 @@ export function createChart(container, { format, onActive }) {
         y: l.ty,
         'dominant-baseline': 'middle',
       }, pg);
-      t.textContent = narrow && l.keys.length > 1 ? `${l.label}` : `${l.label}: ${format.number(l.value)}`;
-      if (narrow && l.keys.length > 1) {
+      const stacked = narrow && l.levels.length > 1;
+      t.textContent = stacked ? l.label : `${l.label}: ${format.number(l.value)}`;
+      if (stacked) {
         const v = el('tspan', { x: m.left + iw + 6, dy: '1.15em' }, t);
         v.textContent = format.number(l.value);
       }
@@ -165,12 +166,14 @@ export function createChart(container, { format, onActive }) {
     if (group.tasks.length === 1) {
       lines.push(`Rozmiar: ${group.tasks[0].size}`);
       lines.push(`${state.leadName}: ${format.number(group.lead)}`);
+      if (state.showFile) lines.push(`Plik: ${group.tasks[0].file}`);
     } else {
       const counts = {};
       for (const t of group.tasks) counts[t.size] = (counts[t.size] || 0) + 1;
       lines.push(`Nakładające się zadania: ${group.tasks.length}`);
       lines.push(`Rozmiary: ${Object.entries(counts).map(([s, c]) => (c > 1 ? `${s} ×${c}` : s)).join(', ')}`);
       lines.push(`${state.leadName}: ${format.number(group.lead)}`);
+      if (state.showFile) lines.push(`Pliki: ${[...new Set(group.tasks.map((t) => t.file))].join(', ')}`);
     }
     lines.forEach((text, i) => {
       if (i) tooltip.append(document.createElement('br'));

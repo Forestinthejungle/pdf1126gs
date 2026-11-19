@@ -21,6 +21,10 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
+      # Lists all .xlsx files in the repo so the dashboard loads every import file.
+      - name: Build import file manifest
+        run: node scripts/build-import-manifest.mjs
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: '.' # uploads the whole repo root
