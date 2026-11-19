@@ -1,7 +1,7 @@
 import { readXlsx } from './xlsx-reader.js';
 import {
   extractTasks, buildPeriods, selectSample, percentiles, groupOverlaps, mergePercentileLines,
-  normalizeLevels, removeOutliers, combineImports, computeXmR, computeVariation, DEFAULT_LEVELS, KEY_LEVEL,
+  normalizeLevels, removeOutliers, combineImports, computeXmR, computeVariation, ruleTasks, ruleClosest, DEFAULT_LEVELS, KEY_LEVEL,
 } from './lead-times.js';
 import { createChart, shapePath } from './chart.js';
 import { createXmrCharts } from './xmr-chart.js';
@@ -597,6 +597,7 @@ const variationCharts = createVariationCharts({
     $('variation-view').textContent = !n ? ''
       : zoomed ? `Widok: zadania ${view.start}–${view.end} z ${n}. Przybliżenie zmienia tylko widok – granice i sygnały są liczone dla wszystkich ${tasksWord(n)}.`
         : `Widok: wszystkie zadania (1–${n}).`;
+    renderVariationViewCounts(view, zoomed);
     for (const b of document.querySelectorAll('[data-variation-zoom]')) {
       const a = b.dataset.variationZoom;
       b.disabled = n < 2 || (a === 'in' && view.end - view.start <= 1) || ((a === 'out' || a === 'reset') && !zoomed)
@@ -608,6 +609,25 @@ document.querySelectorAll('[data-variation-zoom]').forEach((b) => b.addEventList
 
 const RULE_NAMES = ['Punkt poza granicami procesu', 'Dwa z trzech poza 2σ', 'Cztery z pięciu poza 1σ', 'Osiem po jednej stronie średniej'];
 const SIDE_TEXT = { high: 'powyżej średniej', low: 'poniżej średniej' };
+// Tasks satisfying each rule in the current series, used to count the hits inside the zoomed view.
+let variationHits = [];
+
+function renderVariationViewCounts(view, zoomed) {
+  document.querySelectorAll('.variation-rule').forEach((box, idx) => {
+    const hits = variationHits[idx];
+    let span = box.querySelector('.we-view-count');
+    if (!span) {
+      span = document.createElement('span');
+      span.className = 'we-view-count';
+      box.querySelector('.we-verdict').after(span);
+    }
+    const inView = hits ? hits.filter((i) => i >= view.start && i <= view.end).length : 0;
+    span.hidden = !zoomed || !hits?.length;
+    span.textContent = zoomed && hits?.length
+      ? `W bieżącym widoku (zadania ${view.start}–${view.end}): ${inView} z ${hits.length} ${plural(hits.length, 'zadania spełniającego', 'zadań spełniających', 'zadań spełniających')} regułę.`
+      : '';
+  });
+}
 
 function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
   const variation = computeVariation(xmr);
@@ -655,17 +675,91 @@ function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
       return `Sygnał do sprawdzenia: okno zadań ${ev.start}–${ev.end}, ostatnie ukończone ${xmrFormat.dateTime(last)} – ${ev.matched.length} z ${rule.window} ściśle ${ev.side === 'high' ? 'powyżej' : 'poniżej'} ${line}, ${SIDE_TEXT[ev.side]} (zadania ${ev.matched.join(', ')}).`;
     });
     const details = box.querySelector('.xmr-signals');
-    details.hidden = !items.length;
+    details.hidden = !items.length || rule.window === 1;
     const count = items.length;
     details.querySelector('summary').textContent = rule.kind === 'run'
-      ? `Sygnał do sprawdzenia – serie: ${count}`
-      : rule.window === 1 ? `Sygnał do sprawdzenia – punkty poza granicami: ${count}` : `Sygnał do sprawdzenia – pasujące okna: ${count}`;
+      ? `Szczegóły serii: ${count}`
+      : `Szczegóły pasujących okien: ${count}`;
     details.querySelector('ul').replaceChildren(...items.map((text) => {
       const li = document.createElement('li');
       li.textContent = text;
       return li;
     }));
+
+    renderVerdict(box, rule, idx);
   });
+
+  function renderVerdict(box, rule, idx) {
+    const badge = box.querySelector('.we-badge');
+    const result = box.querySelector('.we-result');
+    const verdict = box.querySelector('.we-verdict');
+    const listTitle = box.querySelector('.we-list-title');
+    const list = box.querySelector('.we-task-list');
+    const hits = rule.status === 'ok' ? ruleTasks(rule) : [];
+    variationHits[idx] = rule.status === 'ok' ? hits.map((t) => t.index) : null;
+    const state = !n ? null : rule.status !== 'ok' ? 'na' : hits.length ? 'hit' : 'none';
+    box.classList.toggle('we-rule-hit', state === 'hit');
+    box.classList.toggle('we-rule-none', state === 'none');
+    badge.hidden = !state;
+    badge.className = `we-badge we-badge-${state}`;
+    badge.textContent = state === 'hit' ? '⚠ Zachodzi' : state === 'none' ? '✓ Nie zachodzi' : state === 'na' ? 'Nie da się ocenić' : '';
+    result.hidden = state !== 'hit' && state !== 'none';
+    result.className = `we-result we-result-${state}`;
+    listTitle.hidden = state !== 'hit';
+    list.hidden = state !== 'hit';
+    list.replaceChildren();
+    if (state !== 'hit' && state !== 'none') { verdict.textContent = ''; return; }
+
+    const scopeText = `w wybranym zakresie (${tasksWord(n)})`;
+    if (state === 'none') {
+      const values = points.map((p) => p.value);
+      const near = ruleClosest(values, zones, rule);
+      const lineOf = (side) => (side === 'high' ? `+${rule.zone}σ (${f(zones.high[rule.zone])})` : `−${rule.zone}σ (${f(zones.low[rule.zone])})`);
+      let text;
+      if (rule.kind === 'run') {
+        text = `Reguła NIE zachodzi ${scopeText}: nie ma ośmiu kolejnych zadań po jednej stronie średniej ${f(zones.center)}.`;
+        if (near) text += ` Najdłuższa seria: ${tasksWord(near.count)} ${SIDE_TEXT[near.side]} (nr ${near.start}–${near.end}).`;
+      } else if (rule.window === 1) {
+        text = `Reguła NIE zachodzi ${scopeText}: wszystkie zadania mieszczą się w granicach procesu ${f(zones.lower)} – ${f(zones.upper)}.`;
+      } else {
+        text = `Reguła NIE zachodzi ${scopeText}: nie ma ${rule.window} kolejnych zadań, z których co najmniej ${rule.need} przekraczają linię ${rule.zone}σ po tej samej stronie średniej.`;
+        text += near
+          ? ` Najbliżej: zadania ${near.start}–${near.end} – ${near.count} z ${rule.window} ${near.side === 'high' ? 'powyżej' : 'poniżej'} ${lineOf(near.side)}.`
+          : ` Żadne zadanie nie przekracza linii ±${rule.zone}σ.`;
+      }
+      verdict.textContent = text;
+      return;
+    }
+
+    const what = rule.kind === 'run'
+      ? `${rule.events.length} ${plural(rule.events.length, 'seria', 'serie', 'serii')} po jednej stronie średniej`
+      : rule.window === 1 ? `${hits.length} ${plural(hits.length, 'punkt', 'punkty', 'punktów')} poza granicami procesu`
+        : `${rule.events.length} ${plural(rule.events.length, 'pasujące okno', 'pasujące okna', 'pasujących okien')}`;
+    verdict.textContent = `Reguła ZACHODZI ${scopeText}: ${what}. ${hits.length} ${plural(hits.length, 'zadanie spełnia', 'zadania spełniają', 'zadań spełnia')} założenie – na wykresie mają czerwoną obwódkę, pozostałe punkty są przygaszone.`;
+    listTitle.textContent = `Zadania spełniające regułę (${hits.length}):`;
+    list.replaceChildren(...hits.map((h) => {
+      const p = points[h.index - 1];
+      const li = document.createElement('li');
+      li.value = h.index;
+      const strong = document.createElement('strong');
+      strong.textContent = `Zadanie nr ${h.index}`;
+      const parts = [];
+      if (p.task.taskId) parts.push(`ID ${p.task.taskId}`);
+      parts.push(xmrFormat.dateTime(p.task), `${f(p.value)} ${unit}`, `rozmiar ${p.task.size}`);
+      if (rule.kind === 'run') {
+        const ev = h.events[0];
+        parts.push(`seria ${ev.start}–${ev.end} ${SIDE_TEXT[h.side]}${ev.detectedAt === h.index ? ' – 8. punkt (moment wykrycia)' : ev.start === h.index ? ' – początek serii' : ''}`);
+      } else if (rule.window === 1) {
+        parts.push(h.side === 'high' ? `powyżej górnej granicy ${f(zones.upper)}` : `poniżej dolnej granicy ${f(zones.lower)}`);
+      } else {
+        const line = h.side === 'high' ? `powyżej +${rule.zone}σ (${f(zones.high[rule.zone])})` : `poniżej −${rule.zone}σ (${f(zones.low[rule.zone])})`;
+        parts.push(`${line}, ${plural(h.events.length, 'okno', 'okna', 'okien')} ${h.events.map((e) => `${e.start}–${e.end}`).join(', ')}`);
+      }
+      li.append(strong, ` – ${parts.join(' · ')}`);
+      if (rule.kind === 'run' && h.events[0].detectedAt === h.index) li.classList.add('we-detected');
+      return li;
+    }));
+  }
 
   const ariaFor = (rule, i) => {
     if (!n) return `${RULE_NAMES[i]}: brak zadań.`;

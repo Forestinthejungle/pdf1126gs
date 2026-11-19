@@ -2,6 +2,7 @@
 // They share one task-number axis, one Y scale (the same as the X chart) and one zoom; zooming never
 // changes the series, the limits or the detected signals.
 import { el, niceStep, shapePath } from './chart.js';
+import { ruleTasks } from './lead-times.js';
 
 let clipSeq = 0;
 
@@ -168,13 +169,15 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
     }
     panel.guide = el('line', { class: 'xmr-guide', y1: m.top, y2: m.top + ih, visibility: 'hidden' }, series);
     const member = membership(rule);
+    // Tasks that satisfy the rule get the signal ring; uninvolved points are dimmed so the hits stand out.
+    const hits = new Set(ruleTasks(rule).map((t) => t.index));
     const r = narrow ? 4.5 : 5.5;
     for (const p of visible) {
       const cx = x(p.index);
       const cy = y(p.value);
       const info = member.get(p.index);
-      const strong = info?.matched.size > 0;
-      const cls = `marker-group${strong ? ' signal' : info ? ' we-in-window' : ''}`;
+      const strong = hits.has(p.index);
+      const cls = `marker-group${strong ? ' signal we-hit' : info ? ' we-in-window' : hits.size ? ' we-dim' : ''}`;
       const g = el('g', { class: cls, transform: `translate(${cx} ${cy})` }, series);
       if (strong) el('circle', { class: 'signal-ring', r: r + 4 }, g);
       el('path', { class: 'marker', 'data-shape': p.task.size, d: shapePath(p.task.size, r) }, g);

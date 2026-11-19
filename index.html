@@ -172,38 +172,59 @@
           <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-limit" x1="0" x2="24" y1="0" y2="0"></line></svg>granice procesu ±3σ</li>
           <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line we-zone" x1="0" x2="24" y1="0" y2="0"></line></svg>linie ±2σ / ±1σ</li>
           <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><rect class="we-band we-band-high" x="0" y="-7" width="24" height="14"></rect></svg>pasujące okno / seria</li>
-          <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="signal-ring"></circle></svg>Sygnał do sprawdzenia</li>
+          <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="signal-ring"></circle></svg>zadanie spełniające regułę</li>
+          <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="4" class="we-dim-swatch"></circle></svg>zadanie poza regułą (przygaszone)</li>
         </ul>
 
         <article class="variation-rule" aria-labelledby="we-title-1">
-          <h3 class="xmr-chart-title" id="we-title-1">1. Punkt poza granicami procesu</h3>
+          <h3 class="xmr-chart-title" id="we-title-1"><span class="we-title-text">1. Punkt poza granicami procesu</span> <span class="we-badge" hidden></span></h3>
           <p class="variation-desc">Wyróżniony punkt to zadanie, którego czas realizacji znalazł się poza naturalnymi granicami procesu. Otwórz szczegóły zadania i sprawdź, co mogło wpłynąć na jego wyjątkowo długi lub krótki czas.</p>
           <p class="warning variation-status" hidden></p>
           <div class="chart xmr-chart" id="we-chart-1"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
+          <div class="we-result" hidden>
+            <p class="we-verdict"></p>
+            <p class="we-list-title" hidden></p>
+            <ol class="we-task-list" hidden></ol>
+          </div>
           <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
         </article>
 
         <article class="variation-rule" aria-labelledby="we-title-2">
-          <h3 class="xmr-chart-title" id="we-title-2">2. Dwa z trzech poza 2σ</h3>
+          <h3 class="xmr-chart-title" id="we-title-2"><span class="we-title-text">2. Dwa z trzech poza 2σ</span> <span class="we-badge" hidden></span></h3>
           <p class="variation-desc">Sygnał pojawia się, gdy przynajmniej dwa z trzech kolejnych zadań przekraczają linię 2σ po tej samej stronie średniej. Sprawdź, co je łączyło, np. zmianę priorytetów lub zależność od innego zespołu.</p>
           <p class="warning variation-status" hidden></p>
           <div class="chart xmr-chart" id="we-chart-2"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
+          <div class="we-result" hidden>
+            <p class="we-verdict"></p>
+            <p class="we-list-title" hidden></p>
+            <ol class="we-task-list" hidden></ol>
+          </div>
           <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
         </article>
 
         <article class="variation-rule" aria-labelledby="we-title-3">
-          <h3 class="xmr-chart-title" id="we-title-3">3. Cztery z pięciu poza 1σ</h3>
+          <h3 class="xmr-chart-title" id="we-title-3"><span class="we-title-text">3. Cztery z pięciu poza 1σ</span> <span class="we-badge" hidden></span></h3>
           <p class="variation-desc">Sygnał pojawia się, gdy przynajmniej cztery z pięciu kolejnych zadań przekraczają linię 1σ po tej samej stronie średniej. Sprawdź, czy w tym okresie zmienił się sposób pracy albo rodzaj realizowanych zadań.</p>
           <p class="warning variation-status" hidden></p>
           <div class="chart xmr-chart" id="we-chart-3"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
+          <div class="we-result" hidden>
+            <p class="we-verdict"></p>
+            <p class="we-list-title" hidden></p>
+            <ol class="we-task-list" hidden></ol>
+          </div>
           <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
         </article>
 
         <article class="variation-rule" aria-labelledby="we-title-4">
-          <h3 class="xmr-chart-title" id="we-title-4">4. Osiem po jednej stronie średniej</h3>
+          <h3 class="xmr-chart-title" id="we-title-4"><span class="we-title-text">4. Osiem po jednej stronie średniej</span> <span class="we-badge" hidden></span></h3>
           <p class="variation-desc">Osiem kolejnych zadań po jednej stronie średniej może wskazywać na utrzymującą się zmianę czasu realizacji, nawet gdy różnice są małe. Ósmy punkt pokazuje moment wykrycia. Sprawdź, co wydarzyło się przed początkiem serii.</p>
           <p class="warning variation-status" hidden></p>
           <div class="chart xmr-chart" id="we-chart-4"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
+          <div class="we-result" hidden>
+            <p class="we-verdict"></p>
+            <p class="we-list-title" hidden></p>
+            <ol class="we-task-list" hidden></ol>
+          </div>
           <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
         </article>
 

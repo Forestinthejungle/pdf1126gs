@@ -16,6 +16,7 @@
   --p85: #f0f3f6;
   --limit: #ff9b6b;
   --signal: #ff6b6b;
+  --ok: #3fb950;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -316,7 +317,30 @@ legend, .period-label { display: block; font-size: 0.85rem; color: var(--muted);
 .variation-rule .xmr-signals { margin: 6px 4px 0; }
 .we-zone { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 3 4; }
 .xmr-label.we-zone { fill: var(--warn); stroke: var(--panel); stroke-width: 4px; stroke-dasharray: none; }
-.we-band { fill: rgb(255 107 107 / 0.14); }
-.we-band-low { fill: rgb(88 166 255 / 0.12); }
+.we-band { fill: rgb(255 107 107 / 0.2); }
+.we-band-low { fill: rgb(88 166 255 / 0.18); }
 .marker-group.we-in-window .marker { fill-opacity: 1; }
 .we-detect-label { fill: var(--signal); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
+
+/* Per-rule verdict: does the rule occur in the selected range, and which tasks satisfy it. */
+.variation-rule { border-left: 4px solid transparent; padding-left: 8px; }
+.variation-rule.we-rule-hit { border-left-color: var(--signal); }
+.variation-rule.we-rule-none { border-left-color: var(--ok); }
+.we-badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; vertical-align: middle; }
+.we-badge[hidden] { display: none; }
+.we-badge-hit { color: #1b0b0b; background: var(--signal); }
+.we-badge-none { color: #0b1b10; background: var(--ok); }
+.we-badge-na { color: var(--muted); border: 1px solid var(--border); }
+.we-result { margin: 8px 4px 0; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel-2); font-size: 0.9rem; }
+.we-result[hidden], .we-result [hidden] { display: none; }
+.we-result-hit { border-color: var(--signal); }
+.we-result-none { border-color: var(--ok); }
+.we-verdict { margin: 0; }
+.we-view-count { display: block; margin-top: 4px; color: var(--muted); }
+.we-list-title { margin: 8px 0 2px; font-weight: 600; }
+.we-task-list { margin: 0; padding-left: 0; list-style: none; max-height: 220px; overflow-y: auto; }
+.we-task-list li { padding: 2px 0; border-bottom: 1px solid var(--grid); }
+.we-task-list li.we-detected strong { color: var(--signal); }
+.marker-group.we-hit .signal-ring { stroke-width: 3; }
+.marker-group.we-dim { opacity: 0.3; }
+.we-dim-swatch { fill: var(--muted); opacity: 0.35; }
