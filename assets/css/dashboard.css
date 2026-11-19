@@ -316,7 +316,15 @@ legend, .period-label { display: block; font-size: 0.85rem; color: var(--muted);
 .variation-status { margin: 4px 4px 6px; }
 .variation-rule .xmr-signals { margin: 6px 4px 0; }
 .we-zone { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 3 4; }
-.xmr-label.we-zone { fill: var(--warn); stroke: var(--panel); stroke-width: 4px; stroke-dasharray: none; }
+.we-zone-minor { stroke-width: 1.25; stroke-dasharray: 2 4; stroke-opacity: 0.75; }
+.we-zone-key { stroke-width: 2.5; stroke-dasharray: none; }
+.xmr-label.we-zone { fill: var(--warn); stroke: var(--panel); stroke-width: 4px; stroke-dasharray: none; stroke-opacity: 1; }
+/* Thirds of the mean-to-limit distance (rules 1–3): darker the further from the mean. */
+.we-third-1 { fill: rgb(242 204 96 / 0.07); }
+.we-third-2 { fill: rgb(242 204 96 / 0.14); }
+.we-third-3 { fill: rgb(242 204 96 / 0.23); }
+.we-third-label { fill: rgb(242 204 96 / 0.75); font-size: 12px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.we-third-label.we-third-key { fill: var(--warn); stroke: var(--panel); stroke-width: 3px; }
 .we-band { fill: rgb(255 107 107 / 0.2); }
 .we-band-low { fill: rgb(88 166 255 / 0.18); }
 .marker-group.we-in-window .marker { fill-opacity: 1; }

@@ -47,6 +47,11 @@ i granice ±3σ co karta X, z tą samą kolejnością zadań i skalą osi Y. Kro
 dokładnie granice karty X (liczone ze współczynnikiem 2,66), a linie ±1σ i ±2σ dzielą tę odległość na trzy równe części.
 Wszystkie porównania są ścisłe i liczone na wartościach przed zaokrągleniem. Każda reguła działa niezależnie.
 
+Na wykresach reguł 1–3 (oceniających odległość od średniej) trzy części odległości od średniej do granicy są zaznaczone po obu
+stronach jako cieniowane strefy **1/3**, **2/3** i **3/3** (coraz ciemniejsze), z liniami ±1σ i ±2σ; linia, względem której
+ocenia dana reguła, jest pogrubiona, a etykiety stref, w które muszą trafić jej punkty, są wyróżnione. Reguła 4 ocenia tylko
+stronę średniej, więc jej wykres nie ma stref.
+
 1. **Punkt poza granicami procesu** – punkt ściśle powyżej +3σ lub poniżej −3σ.
 2. **Dwa z trzech poza 2σ** – w oknie 3 kolejnych zadań (przesuwanym o 1) co najmniej 2 ściśle poza ±2σ po tej samej stronie.
 3. **Cztery z pięciu poza 1σ** – w oknie 5 kolejnych zadań co najmniej 4 ściśle poza ±1σ po tej samej stronie.

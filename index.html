@@ -147,7 +147,7 @@
       <details class="variation-theory">
         <summary>Jak czytać te wykresy?</summary>
         <p><strong>Co widzisz?</strong> Na wszystkich czterech wykresach są te same zadania w kolejności ukończenia. Linia środkowa pokazuje średni czas realizacji w serii lub okresie, z którego wyznaczono granice. Każdy wykres wyróżnia inny wzorzec.</p>
-        <p><strong>Jakiej metody używamy?</strong> Stosujemy cztery reguły Western Electric na karcie X Shewharta. Zmienność szacujemy na podstawie bezwzględnych różnic między czasami kolejnych zadań. Odległość od średniej do naturalnej granicy procesu odpowiada 3σ. Dzielimy ją na trzy równe części, żeby wyznaczyć linie 1σ i 2σ po obu stronach średniej.</p>
+        <p><strong>Jakiej metody używamy?</strong> Stosujemy cztery reguły Western Electric na karcie X Shewharta. Zmienność szacujemy na podstawie bezwzględnych różnic między czasami kolejnych zadań. Odległość od średniej do naturalnej granicy procesu odpowiada 3σ. Dzielimy ją na trzy równe części, żeby wyznaczyć linie 1σ i 2σ po obu stronach średniej. Na wykresach reguł 1–3 te trzy części są zaznaczone jako strefy 1/3, 2/3 i 3/3 (im dalej od średniej, tym ciemniejsze); reguła 4 patrzy tylko na stronę średniej, więc nie ma na niej stref.</p>
         <p><strong>Jak z tego korzystać?</strong> Otwórz szczegóły wyróżnionego punktu albo serii i zajrzyj do historii pracy. Sprawdź, czy zmieniły się wtedy priorytety, skład zespołu, zależności lub typ zadań. Sygnał wskazuje fragment do przejrzenia. Przyczynę ustalasz na podstawie tego, co faktycznie się wydarzyło.</p>
       </details>
       <p class="xmr-scope" id="variation-scope"></p>
@@ -170,7 +170,8 @@
           <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="L"></path></svg>L</li>
           <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-center" x1="0" x2="24" y1="0" y2="0"></line></svg>średnia</li>
           <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-limit" x1="0" x2="24" y1="0" y2="0"></line></svg>granice procesu ±3σ</li>
-          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line we-zone" x1="0" x2="24" y1="0" y2="0"></line></svg>linie ±2σ / ±1σ</li>
+          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line we-zone" x1="0" x2="24" y1="0" y2="0"></line></svg>linie ±2σ / ±1σ (pogrubiona – linia danej reguły)</li>
+          <li class="legend-note"><svg viewBox="0 -8 36 16" aria-hidden="true"><rect class="we-third-1" x="0" y="-7" width="12" height="14"></rect><rect class="we-third-2" x="12" y="-7" width="12" height="14"></rect><rect class="we-third-3" x="24" y="-7" width="12" height="14"></rect></svg>strefy 1/3, 2/3, 3/3 odległości od średniej do granicy (reguły 1–3)</li>
           <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><rect class="we-band we-band-high" x="0" y="-7" width="24" height="14"></rect></svg>pasujące okno / seria</li>
           <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="signal-ring"></circle></svg>zadanie spełniające regułę</li>
           <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="4" class="we-dim-swatch"></circle></svg>zadanie poza regułą (przygaszone)</li>
