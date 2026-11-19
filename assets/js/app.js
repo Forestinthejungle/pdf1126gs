@@ -1,10 +1,11 @@
 import { readXlsx } from './xlsx-reader.js';
 import {
   extractTasks, buildPeriods, selectSample, percentiles, groupOverlaps, mergePercentileLines,
-  normalizeLevels, removeOutliers, combineImports, computeXmR, DEFAULT_LEVELS, KEY_LEVEL,
+  normalizeLevels, removeOutliers, combineImports, computeXmR, computeVariation, DEFAULT_LEVELS, KEY_LEVEL,
 } from './lead-times.js';
 import { createChart, shapePath } from './chart.js';
 import { createXmrCharts } from './xmr-chart.js';
+import { createVariationCharts } from './variation-charts.js';
 
 const $ = (id) => document.getElementById(id);
 const page = document.querySelector('.page');
@@ -580,6 +581,107 @@ function renderXmr({ sample, sizeText, rangeText, dropOutliers, removedCount, em
       x: n ? `Karta X: ${tasksWord(n)} w kolejności ukończenia.${limitsText} Strzałki przełączają punkty.` : 'Karta X: brak zadań.',
       mr: n > 1 ? `Karta mR: ${rangesWord(n - 1)}.${mrText} Strzałki przełączają punkty.` : 'Karta mR: za mało zadań do obliczenia rozstępu.',
     },
+  });
+
+  renderVariation({ xmr, unit, leadTitle: `Czas realizacji (${unit})`, showFile: active.length > 1, scope: $('xmr-scope').textContent, emptyText });
+}
+
+// ---------- Understanding variation: four Western Electric rules on the X-chart series ----------
+
+const variationCharts = createVariationCharts({
+  containers: [1, 2, 3, 4].map((i) => $(`we-chart-${i}`)),
+  format: xmrFormat,
+  onActive: (text) => { $('variation-live').textContent = text; },
+  onViewChange: (view, n) => {
+    const zoomed = n > 1 && (view.start > 1 || view.end < n);
+    $('variation-view').textContent = !n ? ''
+      : zoomed ? `Widok: zadania ${view.start}–${view.end} z ${n}. Przybliżenie zmienia tylko widok – granice i sygnały są liczone dla wszystkich ${tasksWord(n)}.`
+        : `Widok: wszystkie zadania (1–${n}).`;
+    for (const b of document.querySelectorAll('[data-variation-zoom]')) {
+      const a = b.dataset.variationZoom;
+      b.disabled = n < 2 || (a === 'in' && view.end - view.start <= 1) || ((a === 'out' || a === 'reset') && !zoomed)
+        || (a === 'left' && view.start <= 1) || (a === 'right' && view.end >= n);
+    }
+  },
+});
+document.querySelectorAll('[data-variation-zoom]').forEach((b) => b.addEventListener('click', () => variationCharts.zoom(b.dataset.variationZoom)));
+
+const RULE_NAMES = ['Punkt poza granicami procesu', 'Dwa z trzech poza 2σ', 'Cztery z pięciu poza 1σ', 'Osiem po jednej stronie średniej'];
+const SIDE_TEXT = { high: 'powyżej średniej', low: 'poniżej średniej' };
+
+function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
+  const variation = computeVariation(xmr);
+  const { zones } = variation;
+  const { n, points } = xmr;
+  const f = xmrFormat.fixed2;
+  const taskRef = (i) => {
+    const t = points[i - 1].task;
+    return `zadanie nr ${i}${t.taskId ? ` (ID ${t.taskId})` : ''}`;
+  };
+
+  $('variation-scope').textContent = scope && zones
+    ? `Te same zadania, średnia i granice ±3σ co na karcie X. Średnia ${f(zones.center)}, krok σ ${f(zones.sigma)}: ±1σ ${f(zones.low[1])} i ${f(zones.high[1])}, ±2σ ${f(zones.low[2])} i ${f(zones.high[2])}, ±3σ ${f(zones.lower)} i ${f(zones.upper)}. Każda reguła jest stosowana niezależnie.`
+    : scope ? 'Te same zadania co na karcie X.' : '';
+
+  // A task flagged by more than one rule → show the shared hint.
+  const cover = new Map();
+  variation.rules.forEach((rule) => {
+    for (const ev of rule.events) for (let i = ev.start; i <= ev.end; i++) cover.set(i, (cover.get(i) || new Set()).add(rule.id));
+  });
+  $('variation-overlap').hidden = ![...cover.values()].some((s) => s.size > 1);
+
+  document.querySelectorAll('.variation-rule').forEach((box, idx) => {
+    const rule = variation.rules[idx];
+    const status = box.querySelector('.variation-status');
+    status.hidden = !n || rule.status === 'ok';
+    status.textContent = rule.status === 'no-limits' ? 'Brak podstaw do wyznaczenia stref sygnału'
+      : rule.status === 'too-short' ? 'Za mało zadań do oceny tej reguły' : '';
+    const empty = box.querySelector('.empty');
+    empty.hidden = n > 0;
+    empty.textContent = emptyText;
+
+    const items = rule.events.map((ev) => {
+      const last = points[ev.end - 1].task;
+      if (rule.kind === 'run') {
+        return `Sygnał do sprawdzenia: seria zadań ${ev.start}–${ev.end} (${tasksWord(ev.end - ev.start + 1)}) ${SIDE_TEXT[ev.side]} ${f(zones.center)} – wykrycie przy ósmym punkcie: ${taskRef(ev.detectedAt)}, ${xmrFormat.dateTime(points[ev.detectedAt - 1].task)}; ostatnie zadanie serii ukończono ${xmrFormat.dateTime(last)}.`;
+      }
+      if (rule.window === 1) {
+        const p = points[ev.start - 1];
+        const where = ev.side === 'high' ? `powyżej górnej granicy ${f(zones.upper)}` : `poniżej dolnej granicy ${f(zones.lower)}`;
+        return `Sygnał do sprawdzenia: ${taskRef(ev.start)}, ${xmrFormat.dateTime(p.task)} – ${f(p.value)} ${unit}, ${SIDE_TEXT[ev.side]}, ${where}.`;
+      }
+      const k = rule.zone;
+      const line = ev.side === 'high' ? `+${k}σ (${f(zones.high[k])})` : `−${k}σ (${f(zones.low[k])})`;
+      return `Sygnał do sprawdzenia: okno zadań ${ev.start}–${ev.end}, ostatnie ukończone ${xmrFormat.dateTime(last)} – ${ev.matched.length} z ${rule.window} ściśle ${ev.side === 'high' ? 'powyżej' : 'poniżej'} ${line}, ${SIDE_TEXT[ev.side]} (zadania ${ev.matched.join(', ')}).`;
+    });
+    const details = box.querySelector('.xmr-signals');
+    details.hidden = !items.length;
+    const count = items.length;
+    details.querySelector('summary').textContent = rule.kind === 'run'
+      ? `Sygnał do sprawdzenia – serie: ${count}`
+      : rule.window === 1 ? `Sygnał do sprawdzenia – punkty poza granicami: ${count}` : `Sygnał do sprawdzenia – pasujące okna: ${count}`;
+    details.querySelector('ul').replaceChildren(...items.map((text) => {
+      const li = document.createElement('li');
+      li.textContent = text;
+      return li;
+    }));
+  });
+
+  const ariaFor = (rule, i) => {
+    if (!n) return `${RULE_NAMES[i]}: brak zadań.`;
+    if (rule.status === 'no-limits') return `${RULE_NAMES[i]}: brak podstaw do wyznaczenia stref sygnału.`;
+    if (rule.status === 'too-short') return `${RULE_NAMES[i]}: za mało zadań do oceny tej reguły.`;
+    const what = rule.kind === 'run' ? 'Serie' : rule.window === 1 ? 'Punkty poza granicami' : 'Pasujące okna';
+    return `${RULE_NAMES[i]}: ${tasksWord(n)} w kolejności ukończenia. ${what}: ${rule.events.length}. Strzałki przełączają punkty.`;
+  };
+  variationCharts.render({
+    key: `${poolVersion}|${points.map((p) => p.task.id).join(',')}`,
+    xmr,
+    variation,
+    unit,
+    showFile,
+    yTitle: leadTitle,
+    aria: variation.rules.map(ariaFor),
   });
 }
 

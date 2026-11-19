@@ -304,3 +304,19 @@ legend, .period-label { display: block; font-size: 0.85rem; color: var(--muted);
   .chart.xmr-chart { height: clamp(220px, 34vh, 320px); }
   .xmr-label, .xmr-offscale { font-size: 11px; }
 }
+
+/* ---------- Understanding variation (Western Electric rules) ---------- */
+.variation-theory { margin: 4px 0 10px; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; max-width: 90ch; }
+.variation-theory summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+.variation-theory p { margin: 8px 0 0; }
+#variation-overlap[hidden] { display: none; }
+.variation-rule + .variation-rule { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+.variation-desc { margin: 0 4px 6px; font-size: 0.9rem; color: var(--muted); max-width: 90ch; }
+.variation-status { margin: 4px 4px 6px; }
+.variation-rule .xmr-signals { margin: 6px 4px 0; }
+.we-zone { stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.xmr-label.we-zone { fill: var(--warn); stroke: var(--panel); stroke-width: 4px; stroke-dasharray: none; }
+.we-band { fill: rgb(255 107 107 / 0.14); }
+.we-band-low { fill: rgb(88 166 255 / 0.12); }
+.marker-group.we-in-window .marker { fill-opacity: 1; }
+.we-detect-label { fill: var(--signal); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }

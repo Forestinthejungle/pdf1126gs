@@ -6,7 +6,7 @@ import { readXlsx } from '../assets/js/xlsx-reader.js';
 import {
   extractTasks, percentiles, percentileInc, percentileNearestRank, buildPeriods, selectSample, groupOverlaps,
   mergePercentileLines, parsePolishDate, excelSerialToUtc, normalizeSize, normalizeLevels, removeOutliers,
-  combineImports, computeXmR,
+  combineImports, computeXmR, signalZones, westernElectric, computeVariation,
 } from '../assets/js/lead-times.js';
 
 const iso = (t) => new Date(t).toISOString().slice(0, 10);
@@ -296,4 +296,94 @@ test('XmR through the importer: unsorted dates, same-day tasks, time of day, tas
   assert.deepEqual(x.ranges.map((r) => r.value), [2, 1, 4, 13]);
   assert.equal(x.points[1].task.hasTime, true);
   assert.equal(new Date(x.points[2].task.completedAt).toISOString(), '2025-01-03T18:00:00.000Z');
+});
+
+// Western Electric rules on fixed reference parameters: mean 20, σ step 4 → ±1σ 16/24, ±2σ 12/28, ±3σ 8/32.
+const zones = signalZones({ center: 20, upper: 32, lower: 8 });
+const rule = (values, id) => westernElectric(values, zones).rules[id - 1];
+const sides = (values, id) => rule(values, id).events.map((e) => [e.side, e.start, e.end]);
+
+test('signal zones: σ step = (upper − mean) / 3, ±3σ are exactly the X-chart limits', () => {
+  assert.deepEqual([zones.sigma, zones.low, zones.high], [4, [20, 16, 12, 8], [20, 24, 28, 32]]);
+  // With the 2.66 factor the ±3σ lines stay the computed limits, not mean ± 3·σ recomputed.
+  const x = computeXmR(series([8, 10, 9, 13]));
+  const z = computeVariation(x).zones;
+  assert.equal(z.upper, x.limits.x.upper);
+  assert.equal(z.lower, x.limits.x.lower);
+  close(z.high[2], x.xMean + (2 / 3) * (x.limits.x.upper - x.xMean));
+  assert.equal(signalZones(null), null);
+  assert.equal(signalZones({ center: 5, upper: 5, lower: 5 }), null, 'limits on the mean');
+});
+
+test('rule 1: strictly beyond ±3σ', () => {
+  assert.deepEqual(sides([33], 1), [['high', 1, 1]]);
+  assert.deepEqual(sides([7], 1), [['low', 1, 1]]);
+  assert.deepEqual(sides([32], 1), []);
+  assert.deepEqual(sides([8], 1), []);
+});
+
+test('rule 2: two of three strictly beyond 2σ on the same side', () => {
+  assert.deepEqual(sides([29, 20, 30], 2), [['high', 1, 3]]);
+  assert.deepEqual(rule([33, 20, 29], 2).events[0].matched, [1, 3], 'a point beyond 3σ also counts');
+  assert.deepEqual(sides([29, 20, 11], 2), [], 'opposite sides are counted separately');
+  assert.deepEqual(sides([28, 20, 30], 2), [], 'a point exactly on 2σ does not count');
+  assert.deepEqual(sides([11, 20, 10], 2), [['low', 1, 3]]);
+  // Full windows slide by one task; overlapping windows are separate events.
+  assert.deepEqual(sides([20, 29, 30, 20], 2), [['high', 1, 3], ['high', 2, 4]]);
+});
+
+test('rule 3: four of five strictly beyond 1σ on the same side', () => {
+  assert.deepEqual(sides([25, 26, 20, 27, 28], 3), [['high', 1, 5]]);
+  assert.deepEqual(sides([15, 14, 20, 13, 12], 3), [['low', 1, 5]]);
+  assert.deepEqual(sides([25, 26, 20, 27, 24], 3), [], 'only three strictly above +1σ');
+  assert.deepEqual(rule([25, 33, 20, 29, 28], 3).events[0].matched, [1, 2, 4, 5], 'points in further zones count');
+});
+
+test('rule 4: eight in a row strictly on one side of the mean', () => {
+  const run = [21, 22, 21, 23, 21, 22, 21, 23];
+  assert.deepEqual(rule(run, 4).events.map((e) => [e.side, e.start, e.end, e.detectedAt]), [['high', 1, 8, 8]]);
+  const broken = [...run];
+  broken[3] = 20;
+  assert.deepEqual(rule(broken, 4).events, [], 'a point equal to the mean breaks the run');
+  assert.deepEqual(rule(run.slice(0, 7), 4).events, []);
+  // A longer run is one event; detection stays at its eighth point.
+  const long = [19, 19, 18, 19, 17, 19, 18, 19, 19, 18, 25];
+  assert.deepEqual(rule(long, 4).events.map((e) => [e.side, e.start, e.end, e.detectedAt]), [['low', 1, 10, 8]]);
+});
+
+test('rule status: no basis for zones and too few tasks', () => {
+  const short = westernElectric([21, 22, 21, 23, 21, 22, 21], zones).rules.map((r) => r.status);
+  assert.deepEqual(short, ['ok', 'ok', 'ok', 'too-short']);
+  assert.deepEqual(westernElectric([25, 26], zones).rules.map((r) => r.status), ['ok', 'too-short', 'too-short', 'too-short']);
+  assert.deepEqual(computeVariation(computeXmR(series([5, 5, 5]))).rules.map((r) => r.status), Array(4).fill('no-limits'));
+  assert.deepEqual(computeVariation(computeXmR(series([7]))).rules.map((r) => r.status), Array(4).fill('no-limits'));
+});
+
+test('variation uses the X-chart series, order and limits after filtering', async () => {
+  const { tasks } = await real();
+  for (const size of ['ALL', 'S', 'M', 'L']) {
+    const x = computeXmR(selectSample(tasks, size, null));
+    const v = computeVariation(x);
+    assert.equal(v.zones.center, x.limits.x.center);
+    assert.equal(v.zones.upper, x.limits.x.upper);
+    assert.equal(v.zones.lower, x.limits.x.lower);
+    const r1 = v.rules[0].events.map((e) => e.start);
+    assert.deepEqual(r1, x.xSignals.map((p) => p.index), `rule 1 equals X-chart signals (${size})`);
+  }
+});
+
+test('import: optional context-change and comment columns', async () => {
+  const s = (r, v) => `<c r="${r}" t="inlineStr"><is><t>${v}</t></is></c>`;
+  const rows = [
+    `<row r="1">${s('A1', 'Data ukończenia')}${s('B1', 'Rozmiar')}${s('C1', 'Czas realizacji')}${s('D1', 'Zmiana kontekstu')}${s('E1', 'Komentarz')}</row>`,
+    `<row r="2">${s('A2', '2025-01-02')}${s('B2', 'S')}<c r="C2"><v>5</v></c>${s('D2', 'tak')}${s('E2', 'Nowy zespół')}</row>`,
+    `<row r="3">${s('A3', '2025-01-03')}${s('B3', 'M')}<c r="C3"><v>7</v></c>${s('D3', 'nie')}</row>`,
+  ].join('');
+  const file = zip({
+    'xl/workbook.xml': '<workbook><sheets><sheet name="Dane" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': `<worksheet><sheetData>${rows}</sheetData></worksheet>`,
+  });
+  const { tasks } = extractTasks(await readXlsx(file));
+  assert.deepEqual(tasks.map((t) => [t.lead, t.contextChange, t.comment]), [[5, 'tak', 'Nowy zespół'], [7, null, null]]);
 });

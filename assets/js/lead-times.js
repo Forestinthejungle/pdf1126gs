@@ -130,11 +130,14 @@ export function detectUnit(header) {
 
 function findColumns(rows) {
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
-    const cols = { date: -1, size: -1, lead: -1, id: -1 };
+    const cols = { date: -1, size: -1, lead: -1, id: -1, context: -1, comment: -1 };
     rows[i].cells.forEach((cell, idx) => {
       const t = cellText(cell);
       if (!t) return;
-      if (cols.date < 0 && /data|date|ukoncz/.test(t)) cols.date = idx;
+      // Optional annotations shown next to a task, e.g. "Zmiana kontekstu", "Komentarz", "Uwagi".
+      if (cols.context < 0 && /kontekst|context/.test(t)) cols.context = idx;
+      else if (cols.comment < 0 && /komentarz|comment|uwag/.test(t)) cols.comment = idx;
+      else if (cols.date < 0 && /data|date|ukoncz/.test(t)) cols.date = idx;
       else if (cols.size < 0 && /rozmiar|t-?shirt|size/.test(t)) cols.size = idx;
       else if (cols.lead < 0 && /czas|lead|cycle/.test(t)) cols.lead = idx;
       // Optional task identifier column, e.g. "ID", "ID zadania", "Klucz", "Nr zadania".
@@ -144,7 +147,20 @@ function findColumns(rows) {
       return { ...cols, headerIndex: i, leadHeader: rows[i].cells[cols.lead].value };
     }
   }
-  return { date: 0, size: 1, lead: 2, id: -1, headerIndex: -1, leadHeader: null };
+  return { date: 0, size: 1, lead: 2, id: -1, context: -1, comment: -1, headerIndex: -1, leadHeader: null };
+}
+
+/** Context-change flag: yes/true/1 become "tak", no/false/0/empty are dropped, other text is kept as written. */
+function contextLabel(cell) {
+  if (!cell) return null;
+  if (cell.type === 'bool') return cell.value ? 'tak' : null;
+  if (cell.type === 'number') return cell.value ? 'tak' : null;
+  const s = cellLabel(cell);
+  if (!s) return null;
+  const f = fold(s);
+  if (/^(nie|no|n|false|falsz|brak|-|0)$/.test(f)) return null;
+  if (/^(tak|yes|y|true|prawda|x|1)$/.test(f)) return 'tak';
+  return s;
 }
 
 /**
@@ -185,6 +201,8 @@ export function extractTasks(sheet) {
       completedAt: date + (time ?? 0),
       hasTime: time !== null,
       taskId: cols.id >= 0 ? cellLabel(row.cells[cols.id]) : null,
+      contextChange: cols.context >= 0 ? contextLabel(row.cells[cols.context]) : null,
+      comment: cols.comment >= 0 ? cellLabel(row.cells[cols.comment]) : null,
     });
   }
   return { tasks, skipped, unit: detectUnit(cols.leadHeader), leadHeader: cols.leadHeader };
@@ -373,4 +391,98 @@ export function computeXmR(tasks) {
     xSignals: points.filter((p) => p.signal),
     mrSignals: ranges.filter((r) => r.signal),
   };
+}
+
+/**
+ * Western Electric zones from the X-chart limits (raw, unrounded values). The σ step is (upper − centre) / 3,
+ * so ±3σ are exactly the X-chart limits. Returns null when the limits are missing or coincide with the mean.
+ * thresholds.high[k] / thresholds.low[k] are the +kσ / −kσ lines for k = 1, 2, 3.
+ */
+export function signalZones(xLimits) {
+  if (!xLimits) return null;
+  const { center, upper, lower } = xLimits;
+  const sigma = (upper - center) / 3;
+  if (![center, upper, lower, sigma].every(Number.isFinite) || !(sigma > 0)) return null;
+  return {
+    center,
+    sigma,
+    upper,
+    lower,
+    high: [center, center + sigma, center + 2 * sigma, upper],
+    low: [center, center - sigma, center - 2 * sigma, lower],
+  };
+}
+
+/** The four classic Western Electric rules, in the order shown on the dashboard. */
+export const WE_RULES = [
+  { id: 1, kind: 'window', window: 1, need: 1, zone: 3, minTasks: 1 },
+  { id: 2, kind: 'window', window: 3, need: 2, zone: 2, minTasks: 3 },
+  { id: 3, kind: 'window', window: 5, need: 4, zone: 1, minTasks: 5 },
+  { id: 4, kind: 'run', length: 8, minTasks: 8 },
+];
+
+/**
+ * Sliding full windows (step 1) over values; a window matches on a side when at least `need` points are
+ * strictly beyond the ±zone·σ line on that side (both sides counted separately).
+ * Events use 1-based task numbers: { side, start, end, detectedAt, matched }.
+ */
+export function detectWindowRule(values, zones, { window, need, zone }) {
+  const events = [];
+  if (!zones) return events;
+  for (let s = 0; s + window <= values.length; s++) {
+    const high = [];
+    const low = [];
+    for (let i = s; i < s + window; i++) {
+      if (values[i] > zones.high[zone]) high.push(i + 1);
+      else if (values[i] < zones.low[zone]) low.push(i + 1);
+    }
+    for (const [side, matched] of [['high', high], ['low', low]]) {
+      if (matched.length >= need) events.push({ side, start: s + 1, end: s + window, detectedAt: s + window, matched });
+    }
+  }
+  return events;
+}
+
+/**
+ * Unbroken runs of at least `length` points strictly on one side of the mean; a point equal to the mean
+ * breaks the run. Each run is one event; detectedAt is the `length`-th point of the run.
+ */
+export function detectRunRule(values, zones, length = 8) {
+  const events = [];
+  if (!zones) return events;
+  let start = 0;
+  let side = null;
+  const close = (end) => {
+    if (side && end - start >= length) {
+      const matched = Array.from({ length: end - start }, (_, k) => start + k + 1);
+      events.push({ side, start: start + 1, end, detectedAt: start + length, matched });
+    }
+  };
+  values.forEach((v, i) => {
+    const s = v > zones.center ? 'high' : v < zones.center ? 'low' : null;
+    if (s !== side) { close(i); start = i; side = s; }
+  });
+  close(values.length);
+  return events;
+}
+
+/**
+ * Applies each Western Electric rule independently to one series (values in X-chart order).
+ * status: 'ok' | 'no-limits' (no basis for zones) | 'too-short' (fewer tasks than the rule needs).
+ */
+export function westernElectric(values, zones) {
+  return {
+    zones,
+    rules: WE_RULES.map((rule) => {
+      const status = !zones ? 'no-limits' : values.length < rule.minTasks ? 'too-short' : 'ok';
+      const events = status !== 'ok' ? []
+        : rule.kind === 'run' ? detectRunRule(values, zones, rule.length) : detectWindowRule(values, zones, rule);
+      return { ...rule, status, events };
+    }),
+  };
+}
+
+/** Western Electric analysis on the X-chart series and limits of a computeXmR result. */
+export function computeVariation(xmr) {
+  return westernElectric(xmr.points.map((p) => p.value), signalZones(xmr.limits?.x));
 }
