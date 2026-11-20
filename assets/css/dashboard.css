@@ -196,6 +196,7 @@ legend, .period-label { display: block; font-size: 0.85rem; color: var(--muted);
 [data-shape="S"] { fill: var(--c-S); }
 [data-shape="M"] { fill: var(--c-M); }
 [data-shape="L"] { fill: var(--c-L); }
+[data-shape="D"] { fill: var(--accent); }
 .marker { fill-opacity: 0.85; stroke: var(--bg); stroke-width: 1; }
 .overlap-ring { fill: none; stroke: var(--text); stroke-width: 1.5; }
 .marker-group.active .marker { fill-opacity: 1; stroke: var(--text); stroke-width: 2; }
