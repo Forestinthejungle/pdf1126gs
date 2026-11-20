@@ -3,13 +3,14 @@
 // changes the series, the limits or the detected signals.
 import { el, niceStep, shapePath } from './chart.js';
 import { ruleTasks } from './lead-times.js';
+import { TASK_DESCRIBE } from './xmr-chart.js';
 
 let clipSeq = 0;
 
 const SIDE = { high: 'powyżej średniej', low: 'poniżej średniej' };
 
 /**
- * model: { key, xmr, variation (computeVariation result), unit, yTitle, showFile, aria: [4 strings] }
+ * model: { key, xmr, variation (computeVariation result), unit, yTitle, showFile, aria: [4 strings], describe? }
  * format: { number, fixed2, dateTime(task) }
  */
 export function createVariationCharts({ containers, format, onActive, onViewChange }) {
@@ -27,6 +28,7 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
   const points = () => model?.xmr.points || [];
   const taskCount = () => model?.xmr.n || 0;
   const ruleOf = (panel) => model?.variation.rules[panel.rule];
+  const describe = () => ({ ...TASK_DESCRIBE, ...model?.describe });
 
   /** Per task: the events of this rule it belongs to, and whether it is a "strong" point. */
   function membership(rule) {
@@ -112,7 +114,7 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
       }
     }
     const xt = el('text', { class: 'axis-title', x: m.left + iw / 2, y: m.top + ih + 38, 'text-anchor': 'middle' }, svg);
-    xt.textContent = 'Nr zadania (kolejność ukończenia)';
+    xt.textContent = describe().xTitle;
     const yt = el('text', { class: 'axis-title', transform: `translate(14 ${m.top + ih / 2}) rotate(-90)`, 'text-anchor': 'middle' }, svg);
     yt.textContent = model ? model.yTitle : '';
     el('rect', { class: 'plot-frame', x: m.left, y: m.top, width: iw, height: ih }, svg);
@@ -230,7 +232,7 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
     if (rule.kind === 'run') {
       for (const ev of info.events) {
         out.push({ signal: `Sygnał do sprawdzenia: ${SIDE[ev.side]}` });
-        out.push(`Seria zadań ${ev.start}–${ev.end} (${ev.end - ev.start + 1}) ${SIDE[ev.side]}, wykrycie przy zadaniu ${ev.detectedAt}${item.index === ev.detectedAt ? ' (ten punkt)' : ''}`);
+        out.push(`${describe().runText} ${ev.start}–${ev.end} (${ev.end - ev.start + 1}) ${SIDE[ev.side]}, ${describe().detectText} ${ev.detectedAt}${item.index === ev.detectedAt ? ' (ten punkt)' : ''}`);
       }
       return out;
     }
@@ -255,13 +257,8 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
   function tooltipLines(panel, e) {
     const unit = model.unit ? ` ${model.unit}` : '';
     const t = e.item.task;
-    const lines = [
-      `Data ukończenia: ${format.dateTime(t)}`,
-      `Czas realizacji: ${format.fixed2(e.item.value)}${unit}`,
-      `Rozmiar: ${t.size}`,
-    ];
-    if (t.taskId) lines.push(`ID zadania: ${t.taskId}`);
-    if (model.showFile && t.file) lines.push(`Plik: ${t.file}`);
+    const d = describe();
+    const lines = d.lines(e.item, { format, unit, showFile: model.showFile });
     if (t.contextChange) lines.push(`Zmiana kontekstu: ${t.contextChange}`);
     if (t.comment) lines.push(`Komentarz: ${t.comment}`);
     lines.push(...signalLines(panel, e.item, e.info));
@@ -269,7 +266,7 @@ export function createVariationCharts({ containers, format, onActive, onViewChan
       const others = otherRules(e.item.index, panel.rule);
       if (others.length) lines.push(`Kilka reguł może wskazać ten sam fragment procesu (także reguła ${others.join(', ')}).`);
     }
-    return { title: `Zadanie nr ${e.item.index}`, lines };
+    return { title: d.title(e.item.index), lines };
   }
 
   function applyActive(panel) {

@@ -15,6 +15,8 @@ więc łatwo porównać wyniki na tej samej próbie):
 - **Nearest rank** – wartość zadania o randze `⌈p·n⌉` w posortowanej próbie; zawsze jest to czas konkretnego
   zadania. Bezpośredni link: <https://forestinthejungle.github.io/pdf1126gs/#nearest-rank>.
 
+Trzecia zakładka, **Tempo dostarczania**, pokazuje przepustowość dzienną (opis niżej).
+
 ## Filtry (wspólne dla obu zakładek)
 
 - **Pliki importu** – lista wszystkich plików `.xlsx` z repozytorium; można zaznaczyć jeden lub wiele (dane są łączone).
@@ -71,13 +73,28 @@ Gdy granic nie da się wyznaczyć (np. mniej niż 2 zadania albo granice równe 
 Przybliżenie wykresów zmienia tylko widok. Opcjonalne kolumny `Zmiana kontekstu` i `Komentarz` (także `Uwagi`) są pokazywane
 w dymkach.
 
+## Tempo dostarczania (przepustowość dzienna)
+
+Zakładka **Tempo dostarczania** (bezpośredni link: <https://forestinthejungle.github.io/pdf1126gs/#tempo-dostarczania>)
+pokazuje liczbę zadań dostarczonych każdego dnia z pliku przepustowości (np. `Throughput Daily.xlsx`). Punktem na
+wykresach jest jeden dzień (w kolejności dat), a wartością – liczba dostarczonych zadań.
+
+- Karty **X** i **mR** oraz cztery wykresy **reguł Western Electric** są liczone dokładnie tak samo jak dla czasu
+  realizacji (średnia ± 2,66 · średni mR, górna granica mR 3,267 · średni mR, te same reguły sygnałów, dymki i przybliżenie).
+- Filtry tej zakładki: pliki przepustowości (przy kilku plikach wartości z tego samego dnia są sumowane), okres
+  (pola „Od/Do” i szybkie przyciski 3, 6, 9… miesięcy) oraz przełącznik **Pomiń soboty i niedziele** (domyślnie wyłączony),
+  który usuwa weekendy z serii przed wyznaczeniem granic.
+- Plik przepustowości rozpoznawany jest po nagłówkach w pierwszym arkuszu: kolumna daty (`Data…`) i kolumna
+  `Przepustowość` (także `Throughput`, `Dostarczone`). Taki plik nie trafia do zakładek czasu realizacji. Wiersze z błędną
+  datą, ujemną lub nieliczbową wartością albo powtórzoną datą są pomijane i wymienione pod wykresami.
+
 ## Dodawanie i podmiana plików źródłowych
 
 1. Dodaj plik `.xlsx` w dowolnym miejscu repozytorium (albo zastąp istniejący). Przy deployu skrypt
    `scripts/build-import-manifest.mjs` tworzy `import-files.json` z listą wszystkich plików `.xlsx`, a strona wczytuje je
    wszystkie. Bez tej listy (np. w podglądzie lokalnym) wczytywany jest plik z atrybutu `data-source` w `index.html`.
    Lokalnie listę można zbudować poleceniem `npm run manifest`.
-2. Dane muszą być w **pierwszym arkuszu**, z nagłówkami kolumn: `Data ukończenia`, `Deklarowany rozmiar (T-shirt)`,
+2. Pliki przepustowości (patrz „Tempo dostarczania”) są wykrywane automatycznie. Pliki czasu realizacji muszą mieć dane w **pierwszym arkuszu**, z nagłówkami kolumn: `Data ukończenia`, `Deklarowany rozmiar (T-shirt)`,
    `Czas realizacji` (kolejność dowolna). Daty mogą być datami Excela albo tekstem, np. `15 Lipca 2024`.
    Rozmiary: `S`, `M`, `L`. Jeśli nagłówek czasu zawiera jednostkę, np. `Czas realizacji (dni)`, pojawi się ona na osi.
 3. Zrób commit i push do gałęzi `main` – workflow `Deploy to GitHub Pages` opublikuje nową wersję.

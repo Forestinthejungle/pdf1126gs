@@ -17,8 +17,25 @@ const LINE_NAMES = {
 
 let clipSeq = 0;
 
+/** Default wording for lead-time tasks; a model may override any field via model.describe. */
+export const TASK_DESCRIBE = {
+  xTitle: 'Nr zadania (kolejność ukończenia)',
+  title: (index) => `Zadanie nr ${index}`,
+  runText: 'Seria zadań',
+  detectText: 'wykrycie przy zadaniu',
+  rangeTitle: (a, b) => `Rozstęp kroczący: zadania ${a} i ${b}`,
+  lines: (item, { format, unit, showFile }) => {
+    const t = item.task;
+    const lines = [`Data ukończenia: ${format.dateTime(t)}`, `Czas realizacji: ${format.fixed2(item.value)}${unit}`, `Rozmiar: ${t.size}`];
+    if (t.taskId) lines.push(`ID zadania: ${t.taskId}`);
+    if (showFile && t.file) lines.push(`Plik: ${t.file}`);
+    return lines;
+  },
+  pair: (no, t, { format, unit }) => `Zadanie ${no}${t.taskId ? ` (ID ${t.taskId})` : ''}: ${format.dateTime(t)}, ${format.fixed2(t.lead)}${unit}`,
+};
+
 /**
- * model: { key, xmr (computeXmR result), yTitle: { x, mr }, unit, showFile, aria: { x, mr } }
+ * model: { key, xmr (computeXmR result), yTitle: { x, mr }, unit, showFile, aria: { x, mr }, describe? }
  * format: { number, fixed2, dateTime(task) }
  */
 export function createXmrCharts({ xContainer, mrContainer, format, onActive, onViewChange }) {
@@ -36,6 +53,7 @@ export function createXmrCharts({ xContainer, mrContainer, format, onActive, onV
   const panels = [makePanel('x', xContainer), makePanel('mr', mrContainer)];
   const itemsOf = (kind) => (!model ? [] : kind === 'x' ? model.xmr.points : model.xmr.ranges);
   const taskCount = () => model?.xmr.n || 0;
+  const describe = () => ({ ...TASK_DESCRIBE, ...model?.describe });
 
   function renderPanel(panel) {
     const { svg, container, kind } = panel;
@@ -91,7 +109,7 @@ export function createXmrCharts({ xContainer, mrContainer, format, onActive, onV
       }
     }
     const xt = el('text', { class: 'axis-title', x: m.left + iw / 2, y: m.top + ih + 38, 'text-anchor': 'middle' }, svg);
-    xt.textContent = 'Nr zadania (kolejność ukończenia)';
+    xt.textContent = describe().xTitle;
     const yt = el('text', { class: 'axis-title', transform: `translate(14 ${m.top + ih / 2}) rotate(-90)`, 'text-anchor': 'middle' }, svg);
     yt.textContent = model ? model.yTitle[kind] : '';
     el('rect', { class: 'plot-frame', x: m.left, y: m.top, width: iw, height: ih }, svg);
@@ -144,29 +162,19 @@ export function createXmrCharts({ xContainer, mrContainer, format, onActive, onV
     panel.brushRect = el('rect', { class: 'xmr-brush', y: m.top, height: ih, x: 0, width: 0, visibility: 'hidden' }, svg);
   }
 
-  function taskText(task) {
-    return task.taskId ? `ID ${task.taskId}` : null;
-  }
-
   function tooltipLines(kind, item) {
     const unit = model.unit ? ` ${model.unit}` : '';
     const lim = model.xmr.limits?.[kind];
-    const lines = [];
+    const d = describe();
+    const opts = { format, unit, showFile: model.showFile };
     let title;
+    let lines;
     if (kind === 'x') {
-      const t = item.task;
-      title = `Zadanie nr ${item.index}`;
-      lines.push(`Data ukończenia: ${format.dateTime(t)}`);
-      lines.push(`Czas realizacji: ${format.fixed2(item.value)}${unit}`);
-      lines.push(`Rozmiar: ${t.size}`);
-      if (t.taskId) lines.push(`ID zadania: ${t.taskId}`);
-      if (model.showFile && t.file) lines.push(`Plik: ${t.file}`);
+      title = d.title(item.index);
+      lines = d.lines(item, opts);
     } else {
-      title = `Rozstęp kroczący: zadania ${item.index - 1} i ${item.index}`;
-      for (const [no, t] of [[item.index - 1, item.from], [item.index, item.to]]) {
-        const id = taskText(t);
-        lines.push(`Zadanie ${no}${id ? ` (${id})` : ''}: ${format.dateTime(t)}, ${format.fixed2(t.lead)}${unit}`);
-      }
+      title = d.rangeTitle(item.index - 1, item.index);
+      lines = [[item.index - 1, item.from], [item.index, item.to]].map(([no, t]) => d.pair(no, t, opts));
       lines.push(`Bezwzględna różnica: ${format.fixed2(item.value)}${unit}`);
     }
     if (item.signal && lim) {

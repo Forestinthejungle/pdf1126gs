@@ -7,6 +7,7 @@ import {
 import { createChart, shapePath } from './chart.js';
 import { createXmrCharts } from './xmr-chart.js';
 import { createVariationCharts } from './variation-charts.js';
+import { isThroughputSheet, extractThroughput, combineThroughput, selectDays } from './throughput.js';
 
 const $ = (id) => document.getElementById(id);
 const page = document.querySelector('.page');
@@ -49,25 +50,47 @@ const METHODS = {
     note: 'Metoda: nearest rank (najbliższa ranga). Wynikiem jest czas konkretnego zadania z próby: najmniejsza wartość, przy której co najmniej P% zadań ma czas nie dłuższy. Wyniki mogą się różnić od Excela (PERCENTILE.INC).',
   },
 };
+// The delivery-rate tab shows a separate panel; the percentile method of the lead-time tabs is kept meanwhile.
+const DELIVERY = 'delivery';
+const DELIVERY_HASH = 'tempo-dostarczania';
+const TITLES = { lead: $('page-title').textContent, delivery: 'Tempo dostarczania' };
+const SUBTITLES = {
+  lead: $('subtitle').textContent,
+  delivery: 'Każdy punkt to jeden dzień: liczba zadań dostarczonych tego dnia. Granice procesu i sygnały liczone są metodą Shewharta (XmR).',
+};
 const tabs = [...document.querySelectorAll('[role="tab"]')];
-const methodFromHash = () => (Object.hasOwn(METHODS, location.hash.slice(1)) ? location.hash.slice(1) : 'inc');
-let method = methodFromHash();
+const tabFromHash = () => {
+  const h = location.hash.slice(1);
+  return h === DELIVERY_HASH ? DELIVERY : Object.hasOwn(METHODS, h) ? h : 'inc';
+};
+let currentTab = tabFromHash();
+let method = currentTab === DELIVERY ? 'inc' : currentTab;
 let onMethodChange = () => {};
 
 function setMethod(next, { focus = false, updateHash = true } = {}) {
-  method = next;
+  currentTab = next;
+  if (next !== DELIVERY) method = next;
+  const delivery = next === DELIVERY;
   for (const tab of tabs) {
-    const selected = tab.dataset.method === method;
+    const selected = tab.dataset.method === next;
     tab.setAttribute('aria-selected', String(selected));
     tab.tabIndex = selected ? 0 : -1;
     if (selected) {
-      $('dashboard').setAttribute('aria-labelledby', tab.id);
+      if (!delivery) $('dashboard').setAttribute('aria-labelledby', tab.id);
       if (focus) tab.focus();
     }
   }
+  $('dashboard').hidden = delivery;
+  $('source').hidden = delivery;
+  $('delivery').hidden = !delivery;
+  $('page-title').textContent = TITLES[delivery ? 'delivery' : 'lead'];
+  $('subtitle').textContent = SUBTITLES[delivery ? 'delivery' : 'lead'];
   $('method-note').textContent = METHODS[method].note;
-  if (updateHash) history.replaceState(null, '', method === 'inc' ? location.pathname + location.search : `#${method}`);
-  onMethodChange();
+  if (updateHash) {
+    const hash = delivery ? `#${DELIVERY_HASH}` : method === 'inc' ? '' : `#${method}`;
+    history.replaceState(null, '', hash || location.pathname + location.search);
+  }
+  if (!delivery) onMethodChange();
 }
 
 tabs.forEach((tab, i) => {
@@ -79,14 +102,17 @@ tabs.forEach((tab, i) => {
     setMethod(tabs[(target + tabs.length) % tabs.length].dataset.method, { focus: true });
   });
 });
-window.addEventListener('hashchange', () => setMethod(methodFromHash(), { updateHash: false }));
-setMethod(method, { updateHash: false });
+window.addEventListener('hashchange', () => setMethod(tabFromHash(), { updateHash: false }));
+setMethod(currentTab, { updateHash: false });
 
 // ---------- Import files ----------
 
 let nextImportId = 0;
-const imports = []; // { id, name, origin: 'repo' | 'local', tasks, skipped, unit, sheetName, error }
+// kind 'lead': lead-time tasks; kind 'throughput': daily delivered-task counts (delivery-rate tab).
+const imports = []; // { id, name, origin: 'repo' | 'local', kind, tasks, days, skipped, unit, sheetName, error }
 const selected = new Set();
+const leadImports = () => imports.filter((i) => i.kind === 'lead');
+const throughputImports = () => imports.filter((i) => i.kind === 'throughput');
 
 /** Lists the XLSX files committed to the repository (manifest generated on deploy); falls back to the default file. */
 async function listRepoFiles() {
@@ -101,10 +127,11 @@ async function listRepoFiles() {
 }
 
 async function parseImport(name, origin, getBuffer) {
-  const entry = { id: nextImportId++, name, origin, tasks: [], skipped: [], unit: null, sheetName: null, error: null };
+  const entry = { id: nextImportId++, name, origin, kind: 'lead', tasks: [], days: [], skipped: [], unit: null, sheetName: null, error: null };
   try {
     const sheet = await readXlsx(await getBuffer());
-    Object.assign(entry, extractTasks(sheet), { sheetName: sheet.sheetName });
+    if (isThroughputSheet(sheet)) Object.assign(entry, { kind: 'throughput' }, extractThroughput(sheet), { sheetName: sheet.sheetName });
+    else Object.assign(entry, extractTasks(sheet), { sheetName: sheet.sheetName });
   } catch (err) {
     entry.error = err.message;
   }
@@ -118,9 +145,19 @@ async function fetchRepoFile(path) {
 }
 
 function renderFiles() {
-  const list = $('file-list');
+  renderFileList($('file-list'), leadImports(), (imp) => tasksWord(imp.tasks.length), dataChanged);
+  renderFileList($('tp-file-list'), throughputImports(), (imp) => daysWord(imp.days.length), deliveryDataChanged);
+}
+
+function renderFileList(list, entries, countText, onChange) {
   list.replaceChildren();
-  for (const imp of imports) {
+  if (loaded && !entries.length) {
+    const li = document.createElement('li');
+    li.className = 'file-loading';
+    li.textContent = 'Brak plików tego rodzaju.';
+    list.append(li);
+  }
+  for (const imp of entries) {
     const li = document.createElement('li');
     const label = document.createElement('label');
     const box = document.createElement('input');
@@ -129,7 +166,7 @@ function renderFiles() {
     box.disabled = Boolean(imp.error);
     box.addEventListener('change', () => {
       if (box.checked) selected.add(imp.id); else selected.delete(imp.id);
-      dataChanged();
+      onChange();
     });
     const name = document.createElement('span');
     name.className = 'file-name';
@@ -137,7 +174,7 @@ function renderFiles() {
     label.append(box, name);
     const meta = document.createElement('small');
     const origin = imp.origin === 'repo' ? 'repozytorium' : 'z dysku (tylko w tej karcie)';
-    meta.textContent = imp.error ? `${origin} · błąd: ${imp.error}` : `${origin} · ${tasksWord(imp.tasks.length)}`;
+    meta.textContent = imp.error ? `${origin} · błąd: ${imp.error}` : `${origin} · ${countText(imp)}`;
     if (imp.error) meta.classList.add('error');
     li.append(label, meta);
     list.append(li);
@@ -148,7 +185,7 @@ function renderSource() {
   const box = $('source');
   box.classList.remove('error');
   box.replaceChildren();
-  const active = imports.filter((i) => selected.has(i.id));
+  const active = leadImports().filter((i) => selected.has(i.id));
   if (!active.length) { box.textContent = 'Nie wybrano żadnego pliku importu.'; return; }
   for (const imp of active) {
     const p = document.createElement('div');
@@ -191,7 +228,7 @@ const fromIndex = (i) => domain.start + Number(i) * DAY;
 
 /** Recomputes the pooled data after the file selection changes, keeping the user's range when possible. */
 function dataChanged() {
-  pool = combineImports(imports.filter((i) => selected.has(i.id)));
+  pool = combineImports(leadImports().filter((i) => selected.has(i.id)));
   poolVersion++;
   const prevDomain = domain;
   if (pool.tasks.length) {
@@ -403,7 +440,7 @@ function renderExcluded() {
   ul.replaceChildren();
   for (const t of list) {
     const li = document.createElement('li');
-    const text = `${format.date(t.date)} · ${t.size} · ${format.number(t.lead)}${selected.size > 1 ? ` · ${t.file}` : ''}`;
+    const text = `${format.date(t.date)} · ${t.size} · ${format.number(t.lead)}${leadImports().filter((i) => selected.has(i.id)).length > 1 ? ` · ${t.file}` : ''}`;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'link-btn';
@@ -474,7 +511,7 @@ function update({ keepActive = false } = {}) {
   const empty = $('empty');
   empty.hidden = n > 0 || manual.length > 0;
   empty.textContent = !loaded ? 'Wczytywanie danych…'
-    : !selected.size ? 'Nie wybrano żadnego pliku importu.'
+    : !leadImports().some((i) => selected.has(i.id)) ? 'Nie wybrano żadnego pliku importu.'
       : !pool.tasks.length ? 'Wybrane pliki nie zawierają poprawnych zadań.'
         : 'Brak zadań dla wybranego rozmiaru i okresu';
 
@@ -494,7 +531,7 @@ function update({ keepActive = false } = {}) {
     yMax: n || manual.length ? Math.max(...sample.map((t) => t.lead), ...manual.map((t) => t.lead)) : Math.max(1, ...pool.tasks.map((t) => t.lead)),
     yTitle: pool.unit ? `${leadName} (${pool.unit})` : leadName,
     leadName,
-    showFile: selected.size > 1,
+    showFile: leadImports().filter((i) => selected.has(i.id)).length > 1,
     groups,
     lines: n ? mergePercentileLines(p) : [],
     ariaLabel: n
@@ -502,53 +539,144 @@ function update({ keepActive = false } = {}) {
       : `Brak zadań dla wybranego rozmiaru i okresu (${sizeText}, ${rangeText}).`,
   });
 
-  renderXmr({ sample, sizeText, rangeText, dropOutliers, removedCount: removed.length, emptyText: empty.textContent });
+  renderLeadXmr({ sample, sizeText, rangeText, dropOutliers, removedCount: removed.length, emptyText: empty.textContent });
 }
 
-// ---------- XmR control charts (same filtered sample as the scatterplot) ----------
+// ---------- XmR control charts and Western Electric rules, shared by the lead-time and delivery-rate tabs ----------
 
-const xmrCharts = createXmrCharts({
-  xContainer: $('xmr-x-chart'),
-  mrContainer: $('xmr-mr-chart'),
-  format: xmrFormat,
-  onActive: (text) => { $('xmr-live').textContent = text; },
-  onViewChange: (view, n) => {
+const weekdayFmt = new Intl.DateTimeFormat('pl-PL', { weekday: 'long', timeZone: 'UTC' });
+const daysWord = (n) => `${n} ${plural(n, 'dzień', 'dni', 'dni')}`;
+const rangesWord = (n) => `${n} ${plural(n, 'rozstęp', 'rozstępy', 'rozstępów')}`;
+
+/** Vocabulary of one series: what a point is (a task or a day) and how it is described. */
+const TASK_TERMS = {
+  count: tasksWord,
+  plural: 'zadania',
+  Plural: 'Zadania',
+  gen: 'zadań',
+  two: 'dwóch zadań',
+  order: 'w kolejności ukończenia',
+  ref: (i, t) => `zadanie nr ${i}${t.taskId ? ` (ID ${t.taskId})` : ''}`,
+  Ref: (i) => `Zadanie nr ${i}`,
+  pairs: (a, b) => `zadania ${a} → ${b}`,
+  series: 'seria zadań',
+  window: 'okno zadań',
+  lastOfRun: (d) => `ostatnie zadanie serii ukończono ${d}`,
+  lastInWindow: (d) => `ostatnie ukończone ${d}`,
+  noneBeyond: 'Żadne zadanie nie przekracza',
+  satisfy: (n) => `${n} ${plural(n, 'zadanie spełnia', 'zadania spełniają', 'zadań spełnia')}`,
+  inViewHits: (n) => plural(n, 'zadania spełniającego', 'zadań spełniających', 'zadań spełniających'),
+  extraParts: (t) => [`rozmiar ${t.size}`],
+  dateTime: xmrFormat.dateTime,
+};
+
+const dayDate = (t) => `${format.date(t.date)} (${weekdayFmt.format(new Date(t.date))})`;
+const DAY_TERMS = {
+  count: daysWord,
+  plural: 'dni',
+  Plural: 'Dni',
+  gen: 'dni',
+  two: 'dwóch dni',
+  order: 'w kolejności dat',
+  ref: (i) => `dzień nr ${i}`,
+  Ref: (i) => `Dzień nr ${i}`,
+  pairs: (a, b) => `dni ${a} → ${b}`,
+  series: 'seria dni',
+  window: 'okno dni',
+  lastOfRun: (d) => `ostatni dzień serii: ${d}`,
+  lastInWindow: (d) => `ostatni dzień ${d}`,
+  noneBeyond: 'Żaden dzień nie przekracza',
+  satisfy: (n) => `${n} ${plural(n, 'dzień spełnia', 'dni spełniają', 'dni spełnia')}`,
+  inViewHits: (n) => plural(n, 'dnia spełniającego', 'dni spełniających', 'dni spełniających'),
+  extraParts: () => [],
+  dateTime: dayDate,
+};
+
+/** Chart wording for days (tooltips and axis); lead-time tasks use the chart modules' defaults. */
+const DAY_DESCRIBE = {
+  xTitle: 'Nr dnia (kolejność dat)',
+  title: (i) => `Dzień nr ${i}`,
+  rangeTitle: (a, b) => `Rozstęp kroczący: dni ${a} i ${b}`,
+  runText: 'Seria dni',
+  detectText: 'wykrycie przy dniu',
+  lines: (item, { format: fmt, showFile }) => {
+    const lines = [`Data: ${dayDate(item.task)}`, `Dostarczone zadania: ${fmt.number(item.value)}`];
+    if (showFile && item.task.file) lines.push(`Plik: ${item.task.file}`);
+    return lines;
+  },
+  pair: (no, t, { format: fmt }) => `Dzień ${no}: ${dayDate(t)}, ${fmt.number(t.lead)}`,
+};
+
+/** Wires one XmR section and one variation section whose element ids start with `prefix`. */
+function createSeriesView(prefix, terms) {
+  const q = (id) => $(prefix + id);
+  const xmrRoot = q('xmr');
+  const variationRoot = q('variation');
+  const viewText = (view, n, what) => {
     const zoomed = n > 1 && (view.start > 1 || view.end < n);
-    $('xmr-view').textContent = !n ? ''
-      : zoomed ? `Widok: zadania ${view.start}–${view.end} z ${n}. Przybliżenie zmienia tylko widok – granice są liczone dla wszystkich ${tasksWord(n)}.`
-        : `Widok: wszystkie zadania (1–${n}).`;
-    for (const b of document.querySelectorAll('[data-zoom]')) {
-      const a = b.dataset.zoom;
+    const text = !n ? ''
+      : zoomed ? `Widok: ${terms.plural} ${view.start}–${view.end} z ${n}. Przybliżenie zmienia tylko widok – ${what} liczone dla wszystkich ${terms.count(n)}.`
+        : `Widok: wszystkie ${terms.plural} (1–${n}).`;
+    return { zoomed, text };
+  };
+  const setZoomButtons = (buttons, attr, view, n, zoomed) => {
+    for (const b of buttons) {
+      const a = b.dataset[attr];
       b.disabled = n < 2 || (a === 'in' && view.end - view.start <= 1) || ((a === 'out' || a === 'reset') && !zoomed)
         || (a === 'left' && view.start <= 1) || (a === 'right' && view.end >= n);
     }
-  },
-});
-document.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => xmrCharts.zoom(b.dataset.zoom)));
+  };
+  const chartFormat = { ...xmrFormat, dateTime: terms.dateTime };
+  const sv = { q, terms, xmrRoot, variationRoot, hits: [] };
 
-const rangesWord = (n) => `${n} ${plural(n, 'rozstęp', 'rozstępy', 'rozstępów')}`;
+  sv.xmrCharts = createXmrCharts({
+    xContainer: q('xmr-x-chart'),
+    mrContainer: q('xmr-mr-chart'),
+    format: chartFormat,
+    onActive: (text) => { q('xmr-live').textContent = text; },
+    onViewChange: (view, n) => {
+      const { zoomed, text } = viewText(view, n, 'granice są');
+      q('xmr-view').textContent = text;
+      setZoomButtons(xmrRoot.querySelectorAll('[data-zoom]'), 'zoom', view, n, zoomed);
+    },
+  });
+  xmrRoot.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => sv.xmrCharts.zoom(b.dataset.zoom)));
 
-function renderXmr({ sample, sizeText, rangeText, dropOutliers, removedCount, emptyText }) {
+  sv.variationCharts = createVariationCharts({
+    containers: [1, 2, 3, 4].map((i) => q(`we-chart-${i}`)),
+    format: chartFormat,
+    onActive: (text) => { q('variation-live').textContent = text; },
+    onViewChange: (view, n) => {
+      const { zoomed, text } = viewText(view, n, 'granice i sygnały są');
+      q('variation-view').textContent = text;
+      renderVariationViewCounts(sv, view, zoomed);
+      setZoomButtons(variationRoot.querySelectorAll('[data-variation-zoom]'), 'variationZoom', view, n, zoomed);
+    },
+  });
+  variationRoot.querySelectorAll('[data-variation-zoom]').forEach((b) => b.addEventListener('click', () => sv.variationCharts.zoom(b.dataset.variationZoom)));
+  return sv;
+}
+
+const leadView = createSeriesView('', TASK_TERMS);
+const deliveryView = createSeriesView('tp-', DAY_TERMS);
+
+/**
+ * Draws the XmR summary, signal list and both charts of one view, then its Western Electric charts.
+ * opts: { sample, unit, valueTitle, mrTitle, showFile, scope, skippedText, emptyText, key, describe }
+ */
+function renderXmr(sv, opts) {
+  const { q, terms } = sv;
+  const { sample, unit, scope, emptyText } = opts;
   const xmr = computeXmR(sample);
   const { n, limits } = xmr;
-  const unit = pool.unit || 'dni';
   const f = xmrFormat.fixed2;
+  const unitText = unit ? ` ${unit}` : '';
 
-  const active = imports.filter((i) => selected.has(i.id) && !i.error);
-  const skipped = active.flatMap((i) => i.skipped);
-  const blank = skipped.filter((s) => s.reason === 'pusty wiersz').length;
-  const invalid = skipped.length - blank;
-  $('xmr-skipped').textContent = !active.length ? ''
-    : `Pominięte rekordy: ${invalid} (brakująca lub niepoprawna data, rozmiar albo czas realizacji – np. ujemny lub nieliczbowy)${blank ? `; puste wiersze: ${blank}` : ''}.`;
+  q('xmr-skipped').textContent = opts.skippedText;
+  q('xmr-scope').textContent = scope;
+  q('xmr-single').hidden = n !== 1;
 
-  const files = active.length > 1 ? `, pliki: ${active.map((i) => `„${i.name}”`).join(', ')}` : '';
-  const outliers = dropOutliers ? `, bez ${removedCount} ${plural(removedCount, 'wartości skrajnej', 'wartości skrajnych', 'wartości skrajnych')} (reguła Tukeya)` : '';
-  $('xmr-scope').textContent = range
-    ? `Granice obliczono dla: ${sizeText}, okres ${rangeText}${outliers}${files} – ${tasksWord(n)}, ${rangesWord(Math.max(n - 1, 0))}. Zmiana filtrów przelicza karty od nowa.`
-    : '';
-  $('xmr-single').hidden = n !== 1;
-
-  const summary = $('xmr-summary');
+  const summary = q('xmr-summary');
   summary.replaceChildren();
   const group = (title, items) => {
     const box = document.createElement('div');
@@ -583,7 +711,7 @@ function renderXmr({ sample, sizeText, rangeText, dropOutliers, removedCount, em
     ['Linia środkowa (średnia)', n ? f(xmr.xMean) : dash, null, 'stat-key'],
     ['Górna granica', limits ? f(limits.x.upper) : dash, null, 'stat-limit'],
     ['Dolna granica', limits ? f(limits.x.lower) : dash, limits && limits.x.lower < 0 ? 'ujemna – poniżej zakresu wykresu (oś od 0)' : null, 'stat-limit'],
-    ['Zadania', String(n), null],
+    [terms.Plural, String(n), null],
     ['Sygnały', limits ? String(xmr.xSignals.length) : dash, null, xmr.xSignals.length ? 'stat-signal' : ''],
   ]);
   group('Karta mR', [
@@ -595,76 +723,54 @@ function renderXmr({ sample, sizeText, rangeText, dropOutliers, removedCount, em
   ]);
 
   const signals = [
-    ...xmr.xSignals.map((p) => `Karta X: zadanie nr ${p.index}${p.task.taskId ? ` (ID ${p.task.taskId})` : ''}, ${xmrFormat.dateTime(p.task)} – ${f(p.value)} ${unit}, ${p.signal === 'high' ? `powyżej górnej granicy ${f(limits.x.upper)}` : `poniżej dolnej granicy ${f(limits.x.lower)}`}`),
-    ...xmr.mrSignals.map((r) => `Karta mR: zadania ${r.index - 1} → ${r.index} – różnica ${f(r.value)} ${unit} (${f(r.from.lead)} → ${f(r.to.lead)}), powyżej górnej granicy ${f(limits.mr.upper)}`),
+    ...xmr.xSignals.map((p) => `Karta X: ${terms.ref(p.index, p.task)}, ${terms.dateTime(p.task)} – ${f(p.value)}${unitText}, ${p.signal === 'high' ? `powyżej górnej granicy ${f(limits.x.upper)}` : `poniżej dolnej granicy ${f(limits.x.lower)}`}`),
+    ...xmr.mrSignals.map((r) => `Karta mR: ${terms.pairs(r.index - 1, r.index)} – różnica ${f(r.value)}${unitText} (${f(r.from.lead)} → ${f(r.to.lead)}), powyżej górnej granicy ${f(limits.mr.upper)}`),
   ];
-  $('xmr-signals').hidden = !signals.length;
-  $('xmr-signals-title').textContent = `Sygnał do sprawdzenia: ${signals.length} ${plural(signals.length, 'punkt', 'punkty', 'punktów')} ściśle poza granicami`;
-  const list = $('xmr-signals-list');
-  list.replaceChildren(...signals.map((text) => {
+  q('xmr-signals').hidden = !signals.length;
+  q('xmr-signals-title').textContent = `Sygnał do sprawdzenia: ${signals.length} ${plural(signals.length, 'punkt', 'punkty', 'punktów')} ściśle poza granicami`;
+  q('xmr-signals-list').replaceChildren(...signals.map((text) => {
     const li = document.createElement('li');
     li.textContent = text;
     return li;
   }));
 
-  const xEmpty = $('xmr-x-empty');
+  const xEmpty = q('xmr-x-empty');
   xEmpty.hidden = n > 0;
   xEmpty.textContent = emptyText;
-  const mrEmpty = $('xmr-mr-empty');
+  const mrEmpty = q('xmr-mr-empty');
   mrEmpty.hidden = n > 1;
-  mrEmpty.textContent = n === 1 ? 'Do obliczenia rozstępu i granic potrzeba co najmniej dwóch zadań.' : emptyText;
+  mrEmpty.textContent = n === 1 ? `Do obliczenia rozstępu i granic potrzeba co najmniej ${terms.two}.` : emptyText;
 
-  const leadTitle = pool.unit ? `Czas realizacji (${pool.unit})` : 'Czas realizacji';
   const limitsText = limits
     ? ` Średnia ${f(xmr.xMean)}, granice ${f(limits.x.lower)} i ${f(limits.x.upper)}. Sygnały: ${xmr.xSignals.length}.`
     : '';
   const mrText = limits
     ? ` Średni rozstęp ${f(xmr.mrMean)}, granice ${f(0)} i ${f(limits.mr.upper)}. Sygnały: ${xmr.mrSignals.length}.`
     : '';
-  xmrCharts.render({
-    key: `${poolVersion}|${xmr.points.map((p) => p.task.id).join(',')}`,
+  const key = `${opts.key}|${xmr.points.map((p) => p.task.id).join(',')}`;
+  sv.xmrCharts.render({
+    key,
     xmr,
     unit,
-    showFile: active.length > 1,
-    yTitle: { x: leadTitle, mr: pool.unit ? `Rozstęp (${pool.unit})` : 'Rozstęp kroczący' },
+    showFile: opts.showFile,
+    describe: opts.describe,
+    yTitle: { x: opts.valueTitle, mr: opts.mrTitle },
     aria: {
-      x: n ? `Karta X: ${tasksWord(n)} w kolejności ukończenia.${limitsText} Strzałki przełączają punkty.` : 'Karta X: brak zadań.',
-      mr: n > 1 ? `Karta mR: ${rangesWord(n - 1)}.${mrText} Strzałki przełączają punkty.` : 'Karta mR: za mało zadań do obliczenia rozstępu.',
+      x: n ? `Karta X: ${terms.count(n)} ${terms.order}.${limitsText} Strzałki przełączają punkty.` : `Karta X: brak ${terms.gen}.`,
+      mr: n > 1 ? `Karta mR: ${rangesWord(n - 1)}.${mrText} Strzałki przełączają punkty.` : `Karta mR: za mało ${terms.gen} do obliczenia rozstępu.`,
     },
   });
 
-  renderVariation({ xmr, unit, leadTitle: `Czas realizacji (${unit})`, showFile: active.length > 1, scope: $('xmr-scope').textContent, emptyText });
+  renderVariation(sv, { ...opts, xmr, key });
 }
-
-// ---------- Understanding variation: four Western Electric rules on the X-chart series ----------
-
-const variationCharts = createVariationCharts({
-  containers: [1, 2, 3, 4].map((i) => $(`we-chart-${i}`)),
-  format: xmrFormat,
-  onActive: (text) => { $('variation-live').textContent = text; },
-  onViewChange: (view, n) => {
-    const zoomed = n > 1 && (view.start > 1 || view.end < n);
-    $('variation-view').textContent = !n ? ''
-      : zoomed ? `Widok: zadania ${view.start}–${view.end} z ${n}. Przybliżenie zmienia tylko widok – granice i sygnały są liczone dla wszystkich ${tasksWord(n)}.`
-        : `Widok: wszystkie zadania (1–${n}).`;
-    renderVariationViewCounts(view, zoomed);
-    for (const b of document.querySelectorAll('[data-variation-zoom]')) {
-      const a = b.dataset.variationZoom;
-      b.disabled = n < 2 || (a === 'in' && view.end - view.start <= 1) || ((a === 'out' || a === 'reset') && !zoomed)
-        || (a === 'left' && view.start <= 1) || (a === 'right' && view.end >= n);
-    }
-  },
-});
-document.querySelectorAll('[data-variation-zoom]').forEach((b) => b.addEventListener('click', () => variationCharts.zoom(b.dataset.variationZoom)));
 
 const RULE_NAMES = ['Punkt poza granicami procesu', 'Dwa z trzech poza 2σ', 'Cztery z pięciu poza 1σ', 'Osiem po jednej stronie średniej'];
 const SIDE_TEXT = { high: 'powyżej średniej', low: 'poniżej średniej' };
-// Tasks satisfying each rule in the current series, used to count the hits inside the zoomed view.
-let variationHits = [];
 
-function renderVariationViewCounts(view, zoomed) {
-  document.querySelectorAll('.variation-rule').forEach((box, idx) => {
-    const hits = variationHits[idx];
+/** Counts the points satisfying each rule inside the zoomed view (sv.hits holds them per rule). */
+function renderVariationViewCounts(sv, view, zoomed) {
+  sv.variationRoot.querySelectorAll('.variation-rule').forEach((box, idx) => {
+    const hits = sv.hits[idx];
     let span = box.querySelector('.we-view-count');
     if (!span) {
       span = document.createElement('span');
@@ -674,38 +780,37 @@ function renderVariationViewCounts(view, zoomed) {
     const inView = hits ? hits.filter((i) => i >= view.start && i <= view.end).length : 0;
     span.hidden = !zoomed || !hits?.length;
     span.textContent = zoomed && hits?.length
-      ? `W bieżącym widoku (zadania ${view.start}–${view.end}): ${inView} z ${hits.length} ${plural(hits.length, 'zadania spełniającego', 'zadań spełniających', 'zadań spełniających')} regułę.`
+      ? `W bieżącym widoku (${sv.terms.plural} ${view.start}–${view.end}): ${inView} z ${hits.length} ${sv.terms.inViewHits(hits.length)} regułę.`
       : '';
   });
 }
 
-function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
+function renderVariation(sv, { xmr, unit, valueTitle, variationTitle, showFile, scope, emptyText, key, describe }) {
+  const { q, terms } = sv;
   const variation = computeVariation(xmr);
   const { zones } = variation;
   const { n, points } = xmr;
   const f = xmrFormat.fixed2;
-  const taskRef = (i) => {
-    const t = points[i - 1].task;
-    return `zadanie nr ${i}${t.taskId ? ` (ID ${t.taskId})` : ''}`;
-  };
+  const unitText = unit ? ` ${unit}` : '';
+  const ref = (i) => terms.ref(i, points[i - 1].task);
 
-  $('variation-scope').textContent = scope && zones
-    ? `Te same zadania, średnia i granice ±3σ co na karcie X. Średnia ${f(zones.center)}, krok σ ${f(zones.sigma)}: ±1σ ${f(zones.low[1])} i ${f(zones.high[1])}, ±2σ ${f(zones.low[2])} i ${f(zones.high[2])}, ±3σ ${f(zones.lower)} i ${f(zones.upper)}. Każda reguła jest stosowana niezależnie.`
-    : scope ? 'Te same zadania co na karcie X.' : '';
+  q('variation-scope').textContent = scope && zones
+    ? `Te same ${terms.plural}, średnia i granice ±3σ co na karcie X. Średnia ${f(zones.center)}, krok σ ${f(zones.sigma)}: ±1σ ${f(zones.low[1])} i ${f(zones.high[1])}, ±2σ ${f(zones.low[2])} i ${f(zones.high[2])}, ±3σ ${f(zones.lower)} i ${f(zones.upper)}. Każda reguła jest stosowana niezależnie.`
+    : scope ? `Te same ${terms.plural} co na karcie X.` : '';
 
-  // A task flagged by more than one rule → show the shared hint.
+  // A point flagged by more than one rule → show the shared hint.
   const cover = new Map();
   variation.rules.forEach((rule) => {
     for (const ev of rule.events) for (let i = ev.start; i <= ev.end; i++) cover.set(i, (cover.get(i) || new Set()).add(rule.id));
   });
-  $('variation-overlap').hidden = ![...cover.values()].some((s) => s.size > 1);
+  q('variation-overlap').hidden = ![...cover.values()].some((s) => s.size > 1);
 
-  document.querySelectorAll('.variation-rule').forEach((box, idx) => {
+  sv.variationRoot.querySelectorAll('.variation-rule').forEach((box, idx) => {
     const rule = variation.rules[idx];
     const status = box.querySelector('.variation-status');
     status.hidden = !n || rule.status === 'ok';
     status.textContent = rule.status === 'no-limits' ? 'Brak podstaw do wyznaczenia stref sygnału'
-      : rule.status === 'too-short' ? 'Za mało zadań do oceny tej reguły' : '';
+      : rule.status === 'too-short' ? `Za mało ${terms.gen} do oceny tej reguły` : '';
     const empty = box.querySelector('.empty');
     empty.hidden = n > 0;
     empty.textContent = emptyText;
@@ -713,16 +818,16 @@ function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
     const items = rule.events.map((ev) => {
       const last = points[ev.end - 1].task;
       if (rule.kind === 'run') {
-        return `Sygnał do sprawdzenia: seria zadań ${ev.start}–${ev.end} (${tasksWord(ev.end - ev.start + 1)}) ${SIDE_TEXT[ev.side]} ${f(zones.center)} – wykrycie przy ósmym punkcie: ${taskRef(ev.detectedAt)}, ${xmrFormat.dateTime(points[ev.detectedAt - 1].task)}; ostatnie zadanie serii ukończono ${xmrFormat.dateTime(last)}.`;
+        return `Sygnał do sprawdzenia: ${terms.series} ${ev.start}–${ev.end} (${terms.count(ev.end - ev.start + 1)}) ${SIDE_TEXT[ev.side]} ${f(zones.center)} – wykrycie przy ósmym punkcie: ${ref(ev.detectedAt)}, ${terms.dateTime(points[ev.detectedAt - 1].task)}; ${terms.lastOfRun(terms.dateTime(last))}.`;
       }
       if (rule.window === 1) {
         const p = points[ev.start - 1];
         const where = ev.side === 'high' ? `powyżej górnej granicy ${f(zones.upper)}` : `poniżej dolnej granicy ${f(zones.lower)}`;
-        return `Sygnał do sprawdzenia: ${taskRef(ev.start)}, ${xmrFormat.dateTime(p.task)} – ${f(p.value)} ${unit}, ${SIDE_TEXT[ev.side]}, ${where}.`;
+        return `Sygnał do sprawdzenia: ${ref(ev.start)}, ${terms.dateTime(p.task)} – ${f(p.value)}${unitText}, ${SIDE_TEXT[ev.side]}, ${where}.`;
       }
       const k = rule.zone;
       const line = ev.side === 'high' ? `+${k}σ (${f(zones.high[k])})` : `−${k}σ (${f(zones.low[k])})`;
-      return `Sygnał do sprawdzenia: okno zadań ${ev.start}–${ev.end}, ostatnie ukończone ${xmrFormat.dateTime(last)} – ${ev.matched.length} z ${rule.window} ściśle ${ev.side === 'high' ? 'powyżej' : 'poniżej'} ${line}, ${SIDE_TEXT[ev.side]} (zadania ${ev.matched.join(', ')}).`;
+      return `Sygnał do sprawdzenia: ${terms.window} ${ev.start}–${ev.end}, ${terms.lastInWindow(terms.dateTime(last))} – ${ev.matched.length} z ${rule.window} ściśle ${ev.side === 'high' ? 'powyżej' : 'poniżej'} ${line}, ${SIDE_TEXT[ev.side]} (${terms.plural} ${ev.matched.join(', ')}).`;
     });
     const details = box.querySelector('.xmr-signals');
     details.hidden = !items.length || rule.window === 1;
@@ -746,7 +851,7 @@ function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
     const listTitle = box.querySelector('.we-list-title');
     const list = box.querySelector('.we-task-list');
     const hits = rule.status === 'ok' ? ruleTasks(rule) : [];
-    variationHits[idx] = rule.status === 'ok' ? hits.map((t) => t.index) : null;
+    sv.hits[idx] = rule.status === 'ok' ? hits.map((t) => t.index) : null;
     const state = !n ? null : rule.status !== 'ok' ? 'na' : hits.length ? 'hit' : 'none';
     box.classList.toggle('we-rule-hit', state === 'hit');
     box.classList.toggle('we-rule-none', state === 'none');
@@ -760,22 +865,22 @@ function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
     list.replaceChildren();
     if (state !== 'hit' && state !== 'none') { verdict.textContent = ''; return; }
 
-    const scopeText = `w wybranym zakresie (${tasksWord(n)})`;
+    const scopeText = `w wybranym zakresie (${terms.count(n)})`;
     if (state === 'none') {
       const values = points.map((p) => p.value);
       const near = ruleClosest(values, zones, rule);
       const lineOf = (side) => (side === 'high' ? `+${rule.zone}σ (${f(zones.high[rule.zone])})` : `−${rule.zone}σ (${f(zones.low[rule.zone])})`);
       let text;
       if (rule.kind === 'run') {
-        text = `Reguła NIE zachodzi ${scopeText}: nie ma ośmiu kolejnych zadań po jednej stronie średniej ${f(zones.center)}.`;
-        if (near) text += ` Najdłuższa seria: ${tasksWord(near.count)} ${SIDE_TEXT[near.side]} (nr ${near.start}–${near.end}).`;
+        text = `Reguła NIE zachodzi ${scopeText}: nie ma ośmiu kolejnych ${terms.gen} po jednej stronie średniej ${f(zones.center)}.`;
+        if (near) text += ` Najdłuższa seria: ${terms.count(near.count)} ${SIDE_TEXT[near.side]} (nr ${near.start}–${near.end}).`;
       } else if (rule.window === 1) {
-        text = `Reguła NIE zachodzi ${scopeText}: wszystkie zadania mieszczą się w granicach procesu ${f(zones.lower)} – ${f(zones.upper)}.`;
+        text = `Reguła NIE zachodzi ${scopeText}: wszystkie ${terms.plural} mieszczą się w granicach procesu ${f(zones.lower)} – ${f(zones.upper)}.`;
       } else {
-        text = `Reguła NIE zachodzi ${scopeText}: nie ma ${rule.window} kolejnych zadań, z których co najmniej ${rule.need} przekraczają linię ${rule.zone}σ po tej samej stronie średniej.`;
+        text = `Reguła NIE zachodzi ${scopeText}: nie ma ${rule.window} kolejnych ${terms.gen}, z których co najmniej ${rule.need} przekraczają linię ${rule.zone}σ po tej samej stronie średniej.`;
         text += near
-          ? ` Najbliżej: zadania ${near.start}–${near.end} – ${near.count} z ${rule.window} ${near.side === 'high' ? 'powyżej' : 'poniżej'} ${lineOf(near.side)}.`
-          : ` Żadne zadanie nie przekracza linii ±${rule.zone}σ.`;
+          ? ` Najbliżej: ${terms.plural} ${near.start}–${near.end} – ${near.count} z ${rule.window} ${near.side === 'high' ? 'powyżej' : 'poniżej'} ${lineOf(near.side)}.`
+          : ` ${terms.noneBeyond} linii ±${rule.zone}σ.`;
       }
       verdict.textContent = text;
       return;
@@ -785,17 +890,17 @@ function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
       ? `${rule.events.length} ${plural(rule.events.length, 'seria', 'serie', 'serii')} po jednej stronie średniej`
       : rule.window === 1 ? `${hits.length} ${plural(hits.length, 'punkt', 'punkty', 'punktów')} poza granicami procesu`
         : `${rule.events.length} ${plural(rule.events.length, 'pasujące okno', 'pasujące okna', 'pasujących okien')}`;
-    verdict.textContent = `Reguła ZACHODZI ${scopeText}: ${what}. ${hits.length} ${plural(hits.length, 'zadanie spełnia', 'zadania spełniają', 'zadań spełnia')} założenie – na wykresie mają czerwoną obwódkę, pozostałe punkty są przygaszone.`;
-    listTitle.textContent = `Zadania spełniające regułę (${hits.length}):`;
+    verdict.textContent = `Reguła ZACHODZI ${scopeText}: ${what}. ${terms.satisfy(hits.length)} założenie – na wykresie mają czerwoną obwódkę, pozostałe punkty są przygaszone.`;
+    listTitle.textContent = `${terms.Plural} spełniające regułę (${hits.length}):`;
     list.replaceChildren(...hits.map((h) => {
       const p = points[h.index - 1];
       const li = document.createElement('li');
       li.value = h.index;
       const strong = document.createElement('strong');
-      strong.textContent = `Zadanie nr ${h.index}`;
+      strong.textContent = terms.Ref(h.index);
       const parts = [];
       if (p.task.taskId) parts.push(`ID ${p.task.taskId}`);
-      parts.push(xmrFormat.dateTime(p.task), `${f(p.value)} ${unit}`, `rozmiar ${p.task.size}`);
+      parts.push(terms.dateTime(p.task), `${f(p.value)}${unitText}`, ...terms.extraParts(p.task));
       if (rule.kind === 'run') {
         const ev = h.events[0];
         parts.push(`seria ${ev.start}–${ev.end} ${SIDE_TEXT[h.side]}${ev.detectedAt === h.index ? ' – 8. punkt (moment wykrycia)' : ev.start === h.index ? ' – początek serii' : ''}`);
@@ -812,20 +917,183 @@ function renderVariation({ xmr, unit, leadTitle, showFile, scope, emptyText }) {
   }
 
   const ariaFor = (rule, i) => {
-    if (!n) return `${RULE_NAMES[i]}: brak zadań.`;
+    if (!n) return `${RULE_NAMES[i]}: brak ${terms.gen}.`;
     if (rule.status === 'no-limits') return `${RULE_NAMES[i]}: brak podstaw do wyznaczenia stref sygnału.`;
-    if (rule.status === 'too-short') return `${RULE_NAMES[i]}: za mało zadań do oceny tej reguły.`;
+    if (rule.status === 'too-short') return `${RULE_NAMES[i]}: za mało ${terms.gen} do oceny tej reguły.`;
     const what = rule.kind === 'run' ? 'Serie' : rule.window === 1 ? 'Punkty poza granicami' : 'Pasujące okna';
-    return `${RULE_NAMES[i]}: ${tasksWord(n)} w kolejności ukończenia. ${what}: ${rule.events.length}. Strzałki przełączają punkty.`;
+    return `${RULE_NAMES[i]}: ${terms.count(n)} ${terms.order}. ${what}: ${rule.events.length}. Strzałki przełączają punkty.`;
   };
-  variationCharts.render({
-    key: `${poolVersion}|${points.map((p) => p.task.id).join(',')}`,
+  sv.variationCharts.render({
+    key,
     xmr,
     variation,
     unit,
     showFile,
-    yTitle: leadTitle,
+    describe,
+    yTitle: variationTitle ?? valueTitle,
     aria: variation.rules.map(ariaFor),
+  });
+}
+
+/** Lead-time XmR: the same filtered sample as the scatterplot. */
+function renderLeadXmr({ sample, sizeText, rangeText, dropOutliers, removedCount, emptyText }) {
+  const n = sample.length;
+  const active = leadImports().filter((i) => selected.has(i.id) && !i.error);
+  const skipped = active.flatMap((i) => i.skipped);
+  const blank = skipped.filter((s) => s.reason === 'pusty wiersz').length;
+  const invalid = skipped.length - blank;
+  const files = active.length > 1 ? `, pliki: ${active.map((i) => `„${i.name}”`).join(', ')}` : '';
+  const outliers = dropOutliers ? `, bez ${removedCount} ${plural(removedCount, 'wartości skrajnej', 'wartości skrajnych', 'wartości skrajnych')} (reguła Tukeya)` : '';
+  const unit = pool.unit || 'dni';
+  renderXmr(leadView, {
+    sample,
+    unit,
+    valueTitle: pool.unit ? `Czas realizacji (${pool.unit})` : 'Czas realizacji',
+    mrTitle: pool.unit ? `Rozstęp (${pool.unit})` : 'Rozstęp kroczący',
+    variationTitle: `Czas realizacji (${unit})`,
+    showFile: active.length > 1,
+    skippedText: !active.length ? ''
+      : `Pominięte rekordy: ${invalid} (brakująca lub niepoprawna data, rozmiar albo czas realizacji – np. ujemny lub nieliczbowy)${blank ? `; puste wiersze: ${blank}` : ''}.`,
+    scope: range
+      ? `Granice obliczono dla: ${sizeText}, okres ${rangeText}${outliers}${files} – ${tasksWord(n)}, ${rangesWord(Math.max(n - 1, 0))}. Zmiana filtrów przelicza karty od nowa.`
+      : '',
+    emptyText,
+    key: `lead|${poolVersion}`,
+  });
+}
+
+// ---------- Delivery rate (daily throughput) tab ----------
+
+let deliveryDays = [];
+let deliveryVersion = 0;
+let deliveryDomain = null;
+let deliveryRange = null;
+let deliveryPeriods = [];
+const tpStart = $('tp-date-start');
+const tpEnd = $('tp-date-end');
+
+/** Recombines the selected throughput files, keeping the chosen period when it still fits. */
+function deliveryDataChanged() {
+  deliveryDays = combineThroughput(throughputImports().filter((i) => selected.has(i.id) && !i.error));
+  deliveryVersion++;
+  const prev = deliveryDomain;
+  deliveryDomain = deliveryDays.length ? { start: deliveryDays[0].date, end: deliveryDays.at(-1).date } : null;
+  deliveryPeriods = deliveryDomain ? buildPeriods(deliveryDays) : [];
+  const wasFull = !deliveryRange || !prev || (deliveryRange.start === prev.start && deliveryRange.end === prev.end);
+  if (!deliveryDomain) deliveryRange = null;
+  else if (wasFull) deliveryRange = { ...deliveryDomain };
+  else {
+    const start = Math.max(deliveryRange.start, deliveryDomain.start);
+    const end = Math.min(deliveryRange.end, deliveryDomain.end);
+    deliveryRange = start <= end ? { start, end } : { ...deliveryDomain };
+  }
+
+  const presets = $('tp-presets');
+  presets.replaceChildren();
+  for (const el of [tpStart, tpEnd]) {
+    el.disabled = !deliveryDomain;
+    if (deliveryDomain) { el.min = isoDay(deliveryDomain.start); el.max = isoDay(deliveryDomain.end); }
+  }
+  for (const p of deliveryPeriods) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'preset';
+    b.textContent = p.months ? `${p.months} mies.` : 'Cały okres';
+    b.title = periodName(p);
+    b.addEventListener('click', () => setDeliveryRange(p.start, p.end));
+    presets.append(b);
+  }
+  renderDeliverySource();
+  renderDelivery();
+}
+
+function setDeliveryRange(start, end, moved = 'start') {
+  if (!deliveryDomain) return;
+  start = Math.min(Math.max(start, deliveryDomain.start), deliveryDomain.end);
+  end = Math.min(Math.max(end, deliveryDomain.start), deliveryDomain.end);
+  if (start > end) { if (moved === 'start') start = end; else end = start; }
+  deliveryRange = { start, end };
+  renderDelivery();
+}
+
+tpStart.addEventListener('change', () => {
+  const t = parseDateInput(tpStart.value);
+  if (t === null || !deliveryRange) renderDelivery(); else setDeliveryRange(t, deliveryRange.end, 'start');
+});
+tpEnd.addEventListener('change', () => {
+  const t = parseDateInput(tpEnd.value);
+  if (t === null || !deliveryRange) renderDelivery(); else setDeliveryRange(deliveryRange.start, t, 'end');
+});
+$('tp-weekends').addEventListener('change', () => renderDelivery());
+
+function renderDeliverySource() {
+  const box = $('tp-source');
+  box.replaceChildren();
+  const active = throughputImports().filter((i) => selected.has(i.id) && !i.error);
+  if (!active.length) { box.textContent = loaded ? 'Nie wybrano żadnego pliku przepustowości.' : 'Wczytywanie danych…'; return; }
+  for (const imp of active) {
+    const p = document.createElement('div');
+    p.append(`Źródło: „${imp.name}”${imp.sheetName ? ` (arkusz „${imp.sheetName}”)` : ''}. Wczytano ${daysWord(imp.days.length)}, pominięto ${imp.skipped.length} ${plural(imp.skipped.length, 'wiersz', 'wiersze', 'wierszy')} (puste, błędne lub z powtórzoną datą).`);
+    if (imp.skipped.length) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = 'Pokaż pominięte wiersze';
+      const list = document.createElement('ul');
+      for (const s of imp.skipped) {
+        const li = document.createElement('li');
+        li.textContent = `Wiersz ${s.rowNumber}: ${s.reason}`;
+        list.append(li);
+      }
+      details.append(summary, list);
+      p.append(details);
+    }
+    box.append(p);
+  }
+}
+
+function renderDelivery() {
+  const skipWeekends = $('tp-weekends').checked;
+  const inRange = deliveryRange ? selectDays(deliveryDays, deliveryRange) : [];
+  const sample = skipWeekends ? selectDays(inRange, null, { skipWeekends }) : inRange;
+  const n = sample.length;
+  const weekendCount = inRange.length - n;
+  const active = throughputImports().filter((i) => selected.has(i.id) && !i.error);
+  const rangeText = deliveryRange ? `${format.date(deliveryRange.start)} – ${format.date(deliveryRange.end)}` : 'brak okresu';
+  const total = sample.reduce((s, d) => s + d.lead, 0);
+
+  if (deliveryRange) {
+    tpStart.value = isoDay(deliveryRange.start);
+    tpEnd.value = isoDay(deliveryRange.end);
+  }
+  const match = deliveryPeriods.find((p) => deliveryRange && p.start === deliveryRange.start && p.end === deliveryRange.end);
+  [...$('tp-presets').children].forEach((b, i) => b.setAttribute('aria-pressed', String(deliveryPeriods[i] === match)));
+  $('tp-period-name').textContent = !deliveryRange ? '–' : match ? periodName(match) : 'Własny zakres';
+  $('tp-period-range').textContent = deliveryRange
+    ? `${rangeText} · ${daysWord(n)} w próbie${weekendCount ? ` (pominięto ${weekendCount} ${plural(weekendCount, 'dzień weekendowy', 'dni weekendowe', 'dni weekendowych')})` : ''} · dostarczono ${tasksWord(total)}`
+    : '';
+
+  const skipped = active.flatMap((i) => i.skipped);
+  const blank = skipped.filter((s) => s.reason === 'pusty wiersz').length;
+  const files = active.length > 1 ? `, pliki: ${active.map((i) => `„${i.name}”`).join(', ')} (wartości z tego samego dnia zsumowane)` : '';
+  const emptyText = !loaded ? 'Wczytywanie danych…'
+    : !throughputImports().length ? 'Brak pliku przepustowości (kolumny „Data” i „Przepustowość”).'
+      : !active.length ? 'Nie wybrano żadnego pliku przepustowości.'
+        : !deliveryDays.length ? 'Wybrane pliki nie zawierają poprawnych dni.'
+          : 'Brak dni w wybranym okresie.';
+  renderXmr(deliveryView, {
+    sample,
+    unit: 'zad.',
+    valueTitle: 'Dostarczone zadania (na dzień)',
+    mrTitle: 'Rozstęp kroczący (zadania)',
+    showFile: active.length > 1,
+    describe: DAY_DESCRIBE,
+    skippedText: !active.length ? ''
+      : `Pominięte rekordy: ${skipped.length - blank} (brakująca lub niepoprawna data albo przepustowość, powtórzona data)${blank ? `; puste wiersze: ${blank}` : ''}.`,
+    scope: deliveryRange
+      ? `Granice obliczono dla: okres ${rangeText}${skipWeekends ? ', bez sobót i niedziel' : ''}${files} – ${daysWord(n)}, ${rangesWord(Math.max(n - 1, 0))}. Zmiana filtrów przelicza karty od nowa.`
+      : '',
+    emptyText,
+    key: `delivery|${deliveryVersion}|${skipWeekends}`,
   });
 }
 
@@ -837,16 +1105,17 @@ $('excluded-clear').addEventListener('click', () => {
 });
 $('outliers').addEventListener('change', () => update());
 $('files-all').addEventListener('click', () => {
-  imports.filter((i) => !i.error).forEach((i) => selected.add(i.id));
+  leadImports().filter((i) => !i.error).forEach((i) => selected.add(i.id));
   renderFiles();
   dataChanged();
 });
 $('files-none').addEventListener('click', () => {
-  selected.clear();
+  leadImports().forEach((i) => selected.delete(i.id));
   renderFiles();
   dataChanged();
 });
-$('file-upload').addEventListener('change', async (e) => {
+// Both upload buttons accept either kind of file; each file goes to the tab matching its columns.
+async function uploadFiles(e) {
   const files = [...e.target.files];
   e.target.value = '';
   for (const file of files) {
@@ -857,7 +1126,10 @@ $('file-upload').addEventListener('change', async (e) => {
   }
   renderFiles();
   dataChanged();
-});
+  deliveryDataChanged();
+}
+$('file-upload').addEventListener('change', uploadFiles);
+$('tp-file-upload').addEventListener('change', uploadFiles);
 onMethodChange = () => update();
 
 async function load() {
@@ -868,6 +1140,7 @@ async function load() {
   loaded = true;
   renderFiles();
   dataChanged();
+  deliveryDataChanged();
   const failed = results.filter((i) => i.error);
   if (failed.length === results.length) {
     const box = $('source');
@@ -879,4 +1152,5 @@ async function load() {
 }
 
 update();
+renderDelivery();
 load();
