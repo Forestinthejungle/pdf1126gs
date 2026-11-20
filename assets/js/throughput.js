@@ -94,10 +94,97 @@ export function combineThroughput(imports) {
     .map((d, i) => ({ ...d, id: i, file: d.files.join(', '), comment: d.comments.join('; ') || null }));
 }
 
+const DAY = 86400000;
+const utc = (y, m, d) => Date.UTC(y, m - 1, d);
+
+/** Easter Sunday (Gregorian calendar, anonymous algorithm) as a UTC timestamp. */
+export function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return utc(year, month, day);
+}
+
+const holidayCache = new Map();
+/** Public holidays in Poland (days off by law) for one year: Map<UTC timestamp, name>. */
+export function polishHolidays(year) {
+  if (holidayCache.has(year)) return holidayCache.get(year);
+  const easter = easterSunday(year);
+  const list = [
+    [utc(year, 1, 1), 'Nowy Rok'],
+    [utc(year, 1, 6), 'Trzech Króli'],
+    [easter, 'Wielkanoc'],
+    [easter + DAY, 'Poniedziałek Wielkanocny'],
+    [utc(year, 5, 1), 'Święto Pracy'],
+    [utc(year, 5, 3), 'Święto Konstytucji 3 Maja'],
+    [easter + 49 * DAY, 'Zielone Świątki'],
+    [easter + 60 * DAY, 'Boże Ciało'],
+    [utc(year, 8, 15), 'Wniebowzięcie NMP'],
+    [utc(year, 11, 1), 'Wszystkich Świętych'],
+    [utc(year, 11, 11), 'Święto Niepodległości'],
+    ...(year >= 2025 ? [[utc(year, 12, 24), 'Wigilia']] : []),
+    [utc(year, 12, 25), 'Boże Narodzenie (pierwszy dzień)'],
+    [utc(year, 12, 26), 'Boże Narodzenie (drugi dzień)'],
+  ];
+  const map = new Map(list);
+  holidayCache.set(year, map);
+  return map;
+}
+
+const dayStart = (t) => Math.floor(t / DAY) * DAY;
+
+/** Name of the Polish public holiday on that UTC calendar day, or null. */
+export const polishHoliday = (t) => polishHolidays(new Date(t).getUTCFullYear()).get(dayStart(t)) ?? null;
+
 /** Saturday or Sunday (UTC calendar day). */
 export const isWeekend = (t) => [0, 6].includes(new Date(t).getUTCDay());
 
-/** Days inside the period (inclusive), optionally without Saturdays and Sundays. */
-export function selectDays(days, period, { skipWeekends = false } = {}) {
-  return days.filter((d) => (!period || (d.date >= period.start && d.date <= period.end)) && !(skipWeekends && isWeekend(d.date)));
+/** Day off in Poland: Saturday, Sunday or a public holiday. */
+export const isDayOff = (t) => isWeekend(t) || polishHoliday(t) !== null;
+
+/** Days inside the period (inclusive), optionally without days off (weekends and Polish public holidays). */
+export function selectDays(days, period, { skipDaysOff = false } = {}) {
+  return days.filter((d) => (!period || (d.date >= period.start && d.date <= period.end)) && !(skipDaysOff && isDayOff(d.date)));
+}
+
+/** Monday of the ISO week containing the UTC day t. */
+export const weekMonday = (t) => dayStart(t) - ((new Date(t).getUTCDay() + 6) % 7) * DAY;
+
+/**
+ * Aggregates days into Monday–Friday weeks: one record per week with the sum of the delivered tasks.
+ * Saturdays and Sundays are never counted; Polish public holidays are left out when skipHolidays is set.
+ * Weeks without any counted day are dropped. Records are shaped like days (date = Monday) and also carry
+ * weekStart, weekEnd (Friday), workdays (days summed) and holidays (names of the holidays left out).
+ */
+export function aggregateWeeks(days, { skipHolidays = false } = {}) {
+  const weeks = new Map();
+  for (const d of days) {
+    if (isWeekend(d.date)) continue;
+    const monday = weekMonday(d.date);
+    if (!weeks.has(monday)) {
+      weeks.set(monday, { ...day(0, d.rowNumber, monday, 0), weekStart: monday, weekEnd: monday + 4 * DAY, workdays: 0, holidays: [], files: new Set(), comments: [] });
+    }
+    const w = weeks.get(monday);
+    const holiday = polishHoliday(d.date);
+    if (skipHolidays && holiday) { w.holidays.push(holiday); continue; }
+    w.lead += d.lead;
+    w.workdays++;
+    for (const f of String(d.file ?? '').split(', ').filter(Boolean)) w.files.add(f);
+    if (d.comment) w.comments.push(d.comment);
+  }
+  return [...weeks.values()]
+    .filter((w) => w.workdays > 0)
+    .sort((a, b) => a.date - b.date)
+    .map(({ files, comments, ...w }, i) => ({ ...w, id: i, file: [...files].join(', '), comment: comments.join('; ') || null }));
 }

@@ -14,6 +14,7 @@ const LINE_NAMES = {
     lower: ['Dolna granica (LRL)', 'LRL'],
   },
 };
+const MEDIAN_CENTER = { x: ['Mediana', 'Mediana'], mr: ['Mediana rozstępu', 'Mediana mR'] };
 
 let clipSeq = 0;
 
@@ -117,7 +118,7 @@ export function createXmrCharts({ xContainer, mrContainer, format, onActive, onV
     // Centre line and limits with direct two-line labels in the right margin, nudged apart when they collide.
     if (lim) {
       const lg = el('g', { class: 'xmr-lines' }, svg);
-      const names = LINE_NAMES[kind];
+      const names = model.xmr.center === 'median' ? { ...LINE_NAMES[kind], center: MEDIAN_CENTER[kind] } : LINE_NAMES[kind];
       const labels = [];
       let offscale = null;
       for (const key of ['upper', 'center', 'lower']) {
