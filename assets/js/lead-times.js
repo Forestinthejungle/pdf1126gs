@@ -358,6 +358,9 @@ export function mergePercentileLines(list, keyLevel = KEY_LEVEL) {
 /** Shewhart XmR scaling factors: natural process limits (E2) and the upper range limit (D4) for n = 2. */
 export const XMR_X_FACTOR = 2.66;
 export const XMR_MR_FACTOR = 3.267;
+/** Wheeler's factors for limits computed from the median moving range (instead of the average). */
+export const XMR_X_FACTOR_MEDIAN = 3.145;
+export const XMR_MR_FACTOR_MEDIAN = 3.865;
 
 /** Completion timestamp used for ordering: the time of day when the import provides it, otherwise the date. */
 export const completionTime = (task) => task.completedAt ?? task.date;
@@ -374,8 +377,10 @@ export function orderByCompletion(tasks) {
  * XmR (individuals and moving range) chart for one filtered series. Points are numbered 1…n in completion
  * order; moving range i belongs to the second task of the pair (i = 2…n). Limits need at least two tasks.
  * Signals are points strictly outside the limits (a point exactly on a limit is not a signal).
+ * Options: center 'median' builds both charts on the median X and the median mR (factors 3.145 and 3.865);
+ * nonNegative raises a negative lower X limit to 0 (the computed value is kept as limits.x.rawLower).
  */
-export function computeXmR(tasks) {
+export function computeXmR(tasks, { center = 'mean', nonNegative = false } = {}) {
   const series = orderByCompletion(tasks);
   const n = series.length;
   const points = series.map((task, i) => ({ index: i + 1, task, value: task.lead, signal: null }));
@@ -383,12 +388,22 @@ export function computeXmR(tasks) {
   for (let i = 1; i < n; i++) {
     ranges.push({ index: i + 1, from: series[i - 1], to: series[i], value: Math.abs(series[i].lead - series[i - 1].lead), signal: null });
   }
-  const mean = (list) => list.reduce((s, v) => s + v.value, 0) / list.length;
-  const xMean = n ? mean(points) : null;
-  const mrMean = ranges.length ? mean(ranges) : null;
+  const byMedian = center === 'median';
+  const average = (list) => list.reduce((s, v) => s + v.value, 0) / list.length;
+  const middle = (list) => {
+    const v = list.map((e) => e.value).sort((a, b) => a - b);
+    const h = v.length >> 1;
+    return v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2;
+  };
+  const centre = byMedian ? middle : average;
+  const xMean = n ? centre(points) : null;
+  const mrMean = ranges.length ? centre(ranges) : null;
+  const xf = byMedian ? XMR_X_FACTOR_MEDIAN : XMR_X_FACTOR;
+  const mf = byMedian ? XMR_MR_FACTOR_MEDIAN : XMR_MR_FACTOR;
+  const rawLower = mrMean === null ? null : xMean - xf * mrMean;
   const limits = mrMean === null ? null : {
-    x: { center: xMean, upper: xMean + XMR_X_FACTOR * mrMean, lower: xMean - XMR_X_FACTOR * mrMean },
-    mr: { center: mrMean, upper: XMR_MR_FACTOR * mrMean, lower: 0 },
+    x: { center: xMean, upper: xMean + xf * mrMean, lower: nonNegative ? Math.max(0, rawLower) : rawLower, rawLower },
+    mr: { center: mrMean, upper: mf * mrMean, lower: 0 },
   };
   if (limits) {
     for (const p of points) p.signal = p.value > limits.x.upper ? 'high' : p.value < limits.x.lower ? 'low' : null;
@@ -396,6 +411,7 @@ export function computeXmR(tasks) {
   }
   return {
     n,
+    center,
     points,
     ranges,
     xMean,

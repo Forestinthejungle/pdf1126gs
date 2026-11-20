@@ -7,7 +7,7 @@ import {
 import { createChart, shapePath } from './chart.js';
 import { createXmrCharts } from './xmr-chart.js';
 import { createVariationCharts } from './variation-charts.js';
-import { isThroughputSheet, extractThroughput, combineThroughput, selectDays } from './throughput.js';
+import { isThroughputSheet, extractThroughput, combineThroughput, selectDays, aggregateWeeks, polishHoliday, isWeekend } from './throughput.js';
 
 const $ = (id) => document.getElementById(id);
 const page = document.querySelector('.page');
@@ -56,7 +56,7 @@ const DELIVERY_HASH = 'tempo-dostarczania';
 const TITLES = { lead: $('page-title').textContent, delivery: 'Tempo dostarczania' };
 const SUBTITLES = {
   lead: $('subtitle').textContent,
-  delivery: 'Każdy punkt to jeden dzień: liczba zadań dostarczonych tego dnia. Granice procesu i sygnały liczone są metodą Shewharta (XmR).',
+  delivery: 'Każdy punkt to jeden dzień albo tydzień (pon–pt): liczba dostarczonych zadań. Granice procesu i sygnały liczone są metodą Shewharta (XmR) z median.',
 };
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const tabFromHash = () => {
@@ -601,10 +601,42 @@ const DAY_DESCRIBE = {
   detectText: 'wykrycie przy dniu',
   lines: (item, { format: fmt, showFile }) => {
     const lines = [`Data: ${dayDate(item.task)}`, `Dostarczone zadania: ${fmt.number(item.value)}`];
+    const holiday = polishHoliday(item.task.date);
+    if (holiday) lines.push(`Święto: ${holiday}`);
     if (showFile && item.task.file) lines.push(`Plik: ${item.task.file}`);
     return lines;
   },
   pair: (no, t, { format: fmt }) => `Dzień ${no}: ${dayDate(t)}, ${fmt.number(t.lead)}`,
+};
+
+const weeksWord = (n) => `${n} ${plural(n, 'tydzień', 'tygodnie', 'tygodni')}`;
+const shortDateFmt = new Intl.DateTimeFormat('pl-PL', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const weekDates = (w) => `${shortDateFmt.format(new Date(w.weekStart))} – ${format.date(w.weekEnd)}`;
+const WEEK_TERMS = {
+  ...DAY_TERMS,
+  count: weeksWord,
+  plural: 'tygodnie',
+  Plural: 'Tygodnie',
+  gen: 'tygodni',
+  two: 'dwóch tygodni',
+  ref: (i) => `tydzień nr ${i}`,
+  Ref: (i) => `Tydzień nr ${i}`,
+  pairs: (a, b) => `tygodnie ${a} → ${b}`,
+  dateTime: (w) => `pon–pt ${weekDates(w)}`,
+};
+const workdaysText = (w) => `${daysWord(w.workdays)} ${plural(w.workdays, 'roboczy', 'robocze', 'roboczych')}`;
+const WEEK_DESCRIBE = {
+  xTitle: 'Nr tygodnia (pon–pt, kolejność dat)',
+  title: (i) => `Tydzień nr ${i}`,
+  rangeTitle: (a, b) => `Rozstęp kroczący: tygodnie ${a} i ${b}`,
+  lines: (item, { format: fmt, showFile }) => {
+    const w = item.task;
+    const lines = [`Tydzień: pon–pt ${weekDates(w)}`, `Dostarczone zadania: ${fmt.number(item.value)}`, `Zsumowano: ${workdaysText(w)}`];
+    if (w.holidays.length) lines.push(`Pominięte święta: ${w.holidays.join(', ')}`);
+    if (showFile && w.file) lines.push(`Plik: ${w.file}`);
+    return lines;
+  },
+  pair: (no, w, { format: fmt }) => `Tydzień ${no}: ${weekDates(w)}, ${fmt.number(w.lead)}`,
 };
 
 /** Wires one XmR section and one variation section whose element ids start with `prefix`. */
@@ -613,6 +645,7 @@ function createSeriesView(prefix, terms) {
   const xmrRoot = q('xmr');
   const variationRoot = q('variation');
   const viewText = (view, n, what) => {
+    const terms = sv.terms;
     const zoomed = n > 1 && (view.start > 1 || view.end < n);
     const text = !n ? ''
       : zoomed ? `Widok: ${terms.plural} ${view.start}–${view.end} z ${n}. Przybliżenie zmienia tylko widok – ${what} liczone dla wszystkich ${terms.count(n)}.`
@@ -626,8 +659,9 @@ function createSeriesView(prefix, terms) {
         || (a === 'left' && view.start <= 1) || (a === 'right' && view.end >= n);
     }
   };
-  const chartFormat = { ...xmrFormat, dateTime: terms.dateTime };
   const sv = { q, terms, xmrRoot, variationRoot, hits: [] };
+  // Terms (and the tooltip date wording) may be switched later, e.g. days ↔ weeks on the delivery tab.
+  const chartFormat = { ...xmrFormat, dateTime: (t) => sv.terms.dateTime(t) };
 
   sv.xmrCharts = createXmrCharts({
     xContainer: q('xmr-x-chart'),
@@ -642,6 +676,7 @@ function createSeriesView(prefix, terms) {
   });
   xmrRoot.querySelectorAll('[data-zoom]').forEach((b) => b.addEventListener('click', () => sv.xmrCharts.zoom(b.dataset.zoom)));
 
+  if (!variationRoot) return sv;
   sv.variationCharts = createVariationCharts({
     containers: [1, 2, 3, 4].map((i) => q(`we-chart-${i}`)),
     format: chartFormat,
@@ -667,7 +702,8 @@ const deliveryView = createSeriesView('tp-', DAY_TERMS);
 function renderXmr(sv, opts) {
   const { q, terms } = sv;
   const { sample, unit, scope, emptyText } = opts;
-  const xmr = computeXmR(sample);
+  const xmr = computeXmR(sample, opts.xmrOptions);
+  const byMedian = xmr.center === 'median';
   const { n, limits } = xmr;
   const f = xmrFormat.fixed2;
   const unitText = unit ? ` ${unit}` : '';
@@ -708,14 +744,17 @@ function renderXmr(sv, opts) {
   };
   const dash = '–';
   group('Karta X', [
-    ['Linia środkowa (średnia)', n ? f(xmr.xMean) : dash, null, 'stat-key'],
+    [byMedian ? 'Linia środkowa (mediana)' : 'Linia środkowa (średnia)', n ? f(xmr.xMean) : dash, null, 'stat-key'],
     ['Górna granica', limits ? f(limits.x.upper) : dash, null, 'stat-limit'],
-    ['Dolna granica', limits ? f(limits.x.lower) : dash, limits && limits.x.lower < 0 ? 'ujemna – poniżej zakresu wykresu (oś od 0)' : null, 'stat-limit'],
+    ['Dolna granica', limits ? f(limits.x.lower) : dash,
+      !limits ? null : limits.x.lower < 0 ? 'ujemna – poniżej zakresu wykresu (oś od 0)'
+        : limits.x.rawLower < limits.x.lower ? `wyliczona ${f(limits.x.rawLower)}, przyjęto 0 (wartość nie może być ujemna)` : null,
+      'stat-limit'],
     [terms.Plural, String(n), null],
     ['Sygnały', limits ? String(xmr.xSignals.length) : dash, null, xmr.xSignals.length ? 'stat-signal' : ''],
   ]);
   group('Karta mR', [
-    ['Linia środkowa (średni mR)', limits ? f(xmr.mrMean) : dash, null, 'stat-key'],
+    [byMedian ? 'Linia środkowa (mediana mR)' : 'Linia środkowa (średni mR)', limits ? f(xmr.mrMean) : dash, null, 'stat-key'],
     ['Górna granica (URL)', limits ? f(limits.mr.upper) : dash, null, 'stat-limit'],
     ['Dolna granica (LRL)', limits ? f(limits.mr.lower) : dash, null, 'stat-limit'],
     ['Rozstępy', String(xmr.ranges.length), null],
@@ -742,10 +781,10 @@ function renderXmr(sv, opts) {
   mrEmpty.textContent = n === 1 ? `Do obliczenia rozstępu i granic potrzeba co najmniej ${terms.two}.` : emptyText;
 
   const limitsText = limits
-    ? ` Średnia ${f(xmr.xMean)}, granice ${f(limits.x.lower)} i ${f(limits.x.upper)}. Sygnały: ${xmr.xSignals.length}.`
+    ? ` ${byMedian ? 'Mediana' : 'Średnia'} ${f(xmr.xMean)}, granice ${f(limits.x.lower)} i ${f(limits.x.upper)}. Sygnały: ${xmr.xSignals.length}.`
     : '';
   const mrText = limits
-    ? ` Średni rozstęp ${f(xmr.mrMean)}, granice ${f(0)} i ${f(limits.mr.upper)}. Sygnały: ${xmr.mrSignals.length}.`
+    ? ` ${byMedian ? 'Mediana rozstępu' : 'Średni rozstęp'} ${f(xmr.mrMean)}, granice ${f(0)} i ${f(limits.mr.upper)}. Sygnały: ${xmr.mrSignals.length}.`
     : '';
   const key = `${opts.key}|${xmr.points.map((p) => p.task.id).join(',')}`;
   sv.xmrCharts.render({
@@ -761,7 +800,7 @@ function renderXmr(sv, opts) {
     },
   });
 
-  renderVariation(sv, { ...opts, xmr, key });
+  if (sv.variationCharts) renderVariation(sv, { ...opts, xmr, key });
 }
 
 const RULE_NAMES = ['Punkt poza granicami procesu', 'Dwa z trzech poza 2σ', 'Cztery z pięciu poza 1σ', 'Osiem po jednej stronie średniej'];
@@ -1024,7 +1063,8 @@ tpEnd.addEventListener('change', () => {
   const t = parseDateInput(tpEnd.value);
   if (t === null || !deliveryRange) renderDelivery(); else setDeliveryRange(deliveryRange.start, t, 'end');
 });
-$('tp-weekends').addEventListener('change', () => renderDelivery());
+$('tp-days-off').addEventListener('change', () => renderDelivery());
+document.querySelectorAll('input[name="tp-aggregate"]').forEach((r) => r.addEventListener('change', () => renderDelivery()));
 
 function renderDeliverySource() {
   const box = $('tp-source');
@@ -1052,14 +1092,19 @@ function renderDeliverySource() {
 }
 
 function renderDelivery() {
-  const skipWeekends = $('tp-weekends').checked;
+  const skipDaysOff = $('tp-days-off').checked;
+  const weekly = document.querySelector('input[name="tp-aggregate"]:checked')?.value === 'week';
   const inRange = deliveryRange ? selectDays(deliveryDays, deliveryRange) : [];
-  const sample = skipWeekends ? selectDays(inRange, null, { skipWeekends }) : inRange;
+  // Days that enter the series: weeks always leave out Saturdays and Sundays; holidays follow the switch.
+  const counted = skipDaysOff ? selectDays(inRange, null, { skipDaysOff }) : weekly ? inRange.filter((d) => !isWeekend(d.date)) : inRange;
+  const offCount = inRange.length - counted.length;
+  const sample = weekly ? aggregateWeeks(inRange, { skipHolidays: skipDaysOff }) : counted;
   const n = sample.length;
-  const weekendCount = inRange.length - n;
   const active = throughputImports().filter((i) => selected.has(i.id) && !i.error);
   const rangeText = deliveryRange ? `${format.date(deliveryRange.start)} – ${format.date(deliveryRange.end)}` : 'brak okresu';
   const total = sample.reduce((s, d) => s + d.lead, 0);
+  const unitWord = weekly ? weeksWord : daysWord;
+  deliveryView.terms = weekly ? WEEK_TERMS : DAY_TERMS;
 
   if (deliveryRange) {
     tpStart.value = isoDay(deliveryRange.start);
@@ -1068,9 +1113,16 @@ function renderDelivery() {
   const match = deliveryPeriods.find((p) => deliveryRange && p.start === deliveryRange.start && p.end === deliveryRange.end);
   [...$('tp-presets').children].forEach((b, i) => b.setAttribute('aria-pressed', String(deliveryPeriods[i] === match)));
   $('tp-period-name').textContent = !deliveryRange ? '–' : match ? periodName(match) : 'Własny zakres';
+  const offText = !offCount ? ''
+    : ` (pominięto ${offCount} ${plural(offCount, 'dzień wolny', 'dni wolne', 'dni wolnych')}${weekly && !skipDaysOff ? ' – soboty i niedziele' : ''})`;
   $('tp-period-range').textContent = deliveryRange
-    ? `${rangeText} · ${daysWord(n)} w próbie${weekendCount ? ` (pominięto ${weekendCount} ${plural(weekendCount, 'dzień weekendowy', 'dni weekendowe', 'dni weekendowych')})` : ''} · dostarczono ${tasksWord(total)}`
+    ? `${rangeText} · ${weekly ? `${weeksWord(n)} pon–pt z ${daysWord(counted.length)}` : daysWord(n)} w próbie${offText} · dostarczono ${tasksWord(total)}`
     : '';
+  $('tp-legend-point').textContent = weekly ? 'tydzień (pon–pt)' : 'dzień';
+  $('tp-xmr-x-title').textContent = `X — Przepustowość ${weekly ? 'tygodniowa (pon–pt)' : 'dzienna'} i naturalne granice procesu`;
+  $('tp-xmr-tip').textContent = weekly
+    ? 'Zacznij od karty mR. Pokazuje duże skoki przepustowości między kolejnymi tygodniami. Karta X pokazuje tygodnie z nietypowo niską lub wysoką liczbą dostarczonych zadań.'
+    : 'Zacznij od karty mR. Pokazuje duże skoki przepustowości między kolejnymi dniami. Karta X pokazuje dni z nietypowo niską lub wysoką liczbą dostarczonych zadań.';
 
   const skipped = active.flatMap((i) => i.skipped);
   const blank = skipped.filter((s) => s.reason === 'pusty wiersz').length;
@@ -1080,20 +1132,23 @@ function renderDelivery() {
       : !active.length ? 'Nie wybrano żadnego pliku przepustowości.'
         : !deliveryDays.length ? 'Wybrane pliki nie zawierają poprawnych dni.'
           : 'Brak dni w wybranym okresie.';
+  const offScope = weekly ? `, tygodnie pon–pt (suma dni roboczych${skipDaysOff ? ', bez świąt w Polsce' : ''})`
+    : skipDaysOff ? ', bez weekendów i świąt w Polsce' : '';
   renderXmr(deliveryView, {
     sample,
     unit: 'zad.',
-    valueTitle: 'Dostarczone zadania (na dzień)',
+    valueTitle: `Dostarczone zadania (na ${weekly ? 'tydzień' : 'dzień'})`,
     mrTitle: 'Rozstęp kroczący (zadania)',
     showFile: active.length > 1,
-    describe: DAY_DESCRIBE,
+    describe: weekly ? WEEK_DESCRIBE : DAY_DESCRIBE,
+    xmrOptions: { center: 'median', nonNegative: true },
     skippedText: !active.length ? ''
       : `Pominięte rekordy: ${skipped.length - blank} (brakująca lub niepoprawna data albo przepustowość, powtórzona data)${blank ? `; puste wiersze: ${blank}` : ''}.`,
     scope: deliveryRange
-      ? `Granice obliczono dla: okres ${rangeText}${skipWeekends ? ', bez sobót i niedziel' : ''}${files} – ${daysWord(n)}, ${rangesWord(Math.max(n - 1, 0))}. Zmiana filtrów przelicza karty od nowa.`
+      ? `Granice obliczono z median dla: okres ${rangeText}${offScope}${files} – ${unitWord(n)}, ${rangesWord(Math.max(n - 1, 0))}. Zmiana filtrów przelicza karty od nowa.`
       : '',
-    emptyText,
-    key: `delivery|${deliveryVersion}|${skipWeekends}`,
+    emptyText: weekly && deliveryRange && inRange.length && !n ? 'Brak dni roboczych w wybranym okresie.' : emptyText,
+    key: `delivery|${deliveryVersion}|${skipDaysOff}|${weekly}`,
   });
 }
 

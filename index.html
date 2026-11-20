@@ -245,7 +245,7 @@
     </div>
 
     <div id="delivery" role="tabpanel" aria-labelledby="tab-delivery" hidden>
-    <p class="method-note">Tempo dostarczania: liczba zadań dostarczonych każdego dnia (przepustowość dzienna) z pliku przepustowości. Karty XmR i reguły sygnałów są liczone tą samą metodą Shewharta co dla czasu realizacji: punktami są kolejne dni.</p>
+    <p class="method-note">Tempo dostarczania: liczba zadań dostarczonych każdego dnia (przepustowość dzienna) z pliku przepustowości, opcjonalnie zsumowana do tygodni poniedziałek–piątek. Karty XmR Shewharta są liczone z median: linia środkowa karty X to mediana przepustowości, granice to mediana ± 3,145 · mediana mR (nie mniej niż 0), górna granica mR to 3,865 · mediana mR.</p>
 
     <section class="controls" aria-label="Filtry tempa dostarczania">
       <fieldset class="files">
@@ -267,19 +267,28 @@
         <p class="period-range" id="tp-period-range"></p>
       </fieldset>
 
+      <fieldset class="size-filter">
+        <legend>Agregacja</legend>
+        <div class="segmented">
+          <label><input type="radio" name="tp-aggregate" value="day" checked><span>Dzień</span></label>
+          <label><input type="radio" name="tp-aggregate" value="week"><span>Tydzień (pon–pt)</span></label>
+        </div>
+        <p class="field-hint">Tydzień to suma zadań dostarczonych od poniedziałku do piątku. Soboty i niedziele nie są liczone.</p>
+      </fieldset>
+
       <fieldset class="outliers">
-        <legend>Dni bez pracy</legend>
-        <label class="switch"><input type="checkbox" role="switch" id="tp-weekends"><span class="switch-track" aria-hidden="true"></span><span>Pomiń soboty i niedziele</span></label>
-        <p class="field-hint">Weekendy z zerową przepustowością zaniżają średnią i poszerzają granice. Po włączeniu karty liczone są tylko z dni od poniedziałku do piątku.</p>
+        <legend>Dni wolne</legend>
+        <label class="switch"><input type="checkbox" role="switch" id="tp-days-off" checked><span class="switch-track" aria-hidden="true"></span><span>Pomiń weekendy i święta w Polsce</span></label>
+        <p class="field-hint">Dni wolne z zerową przepustowością zaniżają medianę i poszerzają granice. Po włączeniu karty liczone są tylko z dni roboczych: bez sobót, niedziel i ustawowych świąt w Polsce.</p>
       </fieldset>
     </section>
 
     <section class="xmr" id="tp-xmr" aria-labelledby="tp-xmr-title">
       <h2 id="tp-xmr-title">Karty kontrolne Shewharta (XmR)</h2>
-      <p class="xmr-tip">Zacznij od karty mR. Pokazuje duże skoki przepustowości między kolejnymi dniami. Karta X pokazuje dni z nietypowo niską lub wysoką liczbą dostarczonych zadań.</p>
+      <p class="xmr-tip" id="tp-xmr-tip">Zacznij od karty mR. Pokazuje duże skoki przepustowości między kolejnymi dniami. Karta X pokazuje dni z nietypowo niską lub wysoką liczbą dostarczonych zadań.</p>
       <p class="xmr-scope" id="tp-xmr-scope"></p>
       <p class="xmr-skipped" id="tp-xmr-skipped"></p>
-      <p class="warning" id="tp-xmr-single" hidden>Na karcie X jest tylko jeden dzień. Do obliczenia rozstępu kroczącego i granic procesu potrzeba co najmniej dwóch dni.</p>
+      <p class="warning" id="tp-xmr-single" hidden>Na karcie X jest tylko jeden punkt. Do obliczenia rozstępu kroczącego i granic procesu potrzeba co najmniej dwóch punktów.</p>
       <div class="xmr-summary" id="tp-xmr-summary" aria-live="polite"></div>
       <details class="xmr-signals" id="tp-xmr-signals" hidden>
         <summary id="tp-xmr-signals-title"></summary>
@@ -290,20 +299,20 @@
         <div class="xmr-toolbar">
           <p class="xmr-view" id="tp-xmr-view"></p>
           <div class="file-actions" role="group" aria-label="Przybliżenie kart XmR">
-            <button type="button" class="link-btn" data-zoom="left" aria-label="Przesuń widok do wcześniejszych dni">◀ Wcześniej</button>
+            <button type="button" class="link-btn" data-zoom="left" aria-label="Przesuń widok do wcześniejszych okresów">◀ Wcześniej</button>
             <button type="button" class="link-btn" data-zoom="in">+ Przybliż</button>
             <button type="button" class="link-btn" data-zoom="out">− Oddal</button>
-            <button type="button" class="link-btn" data-zoom="right" aria-label="Przesuń widok do późniejszych dni">Później ▶</button>
+            <button type="button" class="link-btn" data-zoom="right" aria-label="Przesuń widok do późniejszych okresów">Później ▶</button>
             <button type="button" class="link-btn" data-zoom="reset">Cały zakres</button>
           </div>
         </div>
         <ul class="legend" aria-label="Legenda kart XmR">
-          <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="D"></path></svg>dzień</li>
-          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-center" x1="0" x2="24" y1="0" y2="0"></line></svg>linia środkowa</li>
+          <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="D"></path></svg><span id="tp-legend-point">dzień</span></li>
+          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-center" x1="0" x2="24" y1="0" y2="0"></line></svg>linia środkowa (mediana)</li>
           <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-limit" x1="0" x2="24" y1="0" y2="0"></line></svg>granice procesu</li>
           <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="signal-ring"></circle></svg>Sygnał do sprawdzenia</li>
         </ul>
-        <h3 class="xmr-chart-title">X — Przepustowość dzienna i naturalne granice procesu</h3>
+        <h3 class="xmr-chart-title" id="tp-xmr-x-title">X — Przepustowość dzienna i naturalne granice procesu</h3>
         <div class="chart xmr-chart" id="tp-xmr-x-chart">
           <p class="empty" id="tp-xmr-x-empty" hidden></p>
           <div class="tooltip" hidden></div>
@@ -314,99 +323,10 @@
           <div class="tooltip" hidden></div>
         </div>
         <p class="sr-only" id="tp-xmr-live" aria-live="polite"></p>
-        <p class="hint">Najedź kursorem na punkt, aby zobaczyć szczegóły – ten sam dzień zaznacza się na obu kartach. Przeciągnij myszą po wykresie, aby przybliżyć wybrane dni (dwuklik przywraca cały zakres). Klawiatura: Tab, strzałki ← →, klawisze + / − / 0.</p>
+        <p class="hint">Najedź kursorem na punkt, aby zobaczyć szczegóły – ten sam punkt zaznacza się na obu kartach. Przeciągnij myszą po wykresie, aby przybliżyć wybrany fragment (dwuklik przywraca cały zakres). Klawiatura: Tab, strzałki ← →, klawisze + / − / 0.</p>
       </div>
     </section>
 
-    <section class="xmr variation" id="tp-variation" aria-labelledby="tp-variation-title">
-      <h2 id="tp-variation-title">Zrozumienie zmienności</h2>
-      <details class="variation-theory">
-        <summary>Jak czytać te wykresy?</summary>
-        <p><strong>Co widzisz?</strong> Na wszystkich czterech wykresach są te same dni w kolejności dat. Linia środkowa pokazuje średnią dzienną przepustowość w okresie, z którego wyznaczono granice. Każdy wykres wyróżnia inny wzorzec.</p>
-        <p><strong>Jakiej metody używamy?</strong> Stosujemy cztery reguły Western Electric na karcie X Shewharta. Zmienność szacujemy na podstawie bezwzględnych różnic między przepustowością kolejnych dni. Odległość od średniej do naturalnej granicy procesu odpowiada 3σ. Dzielimy ją na trzy równe części, żeby wyznaczyć linie 1σ i 2σ po obu stronach średniej. Na wykresach reguł 1–3 te trzy części są zaznaczone jako strefy 1/3, 2/3 i 3/3 (im dalej od średniej, tym ciemniejsze); reguła 4 patrzy tylko na stronę średniej, więc nie ma na niej stref.</p>
-        <p><strong>Jak z tego korzystać?</strong> Otwórz szczegóły wyróżnionego dnia albo serii i zajrzyj do historii pracy. Sprawdź, czy zmieniły się wtedy priorytety, skład zespołu, zależności, sposób wydawania lub typ zadań. Sygnał wskazuje fragment do przejrzenia. Przyczynę ustalasz na podstawie tego, co faktycznie się wydarzyło.</p>
-      </details>
-      <p class="xmr-scope" id="tp-variation-scope"></p>
-      <p class="note" id="tp-variation-overlap" hidden>Kilka reguł może wskazać ten sam fragment procesu.</p>
-
-      <div class="chart-card xmr-card">
-        <div class="xmr-toolbar">
-          <p class="xmr-view" id="tp-variation-view"></p>
-          <div class="file-actions" role="group" aria-label="Przybliżenie wykresów zmienności">
-            <button type="button" class="link-btn" data-variation-zoom="left" aria-label="Przesuń widok do wcześniejszych dni">◀ Wcześniej</button>
-            <button type="button" class="link-btn" data-variation-zoom="in">+ Przybliż</button>
-            <button type="button" class="link-btn" data-variation-zoom="out">− Oddal</button>
-            <button type="button" class="link-btn" data-variation-zoom="right" aria-label="Przesuń widok do późniejszych dni">Później ▶</button>
-            <button type="button" class="link-btn" data-variation-zoom="reset">Cały zakres</button>
-          </div>
-        </div>
-        <ul class="legend" aria-label="Legenda wykresów zmienności">
-          <li><svg viewBox="-8 -8 16 16" aria-hidden="true"><path data-shape="D"></path></svg>dzień</li>
-          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-center" x1="0" x2="24" y1="0" y2="0"></line></svg>średnia</li>
-          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line xmr-limit" x1="0" x2="24" y1="0" y2="0"></line></svg>granice procesu ±3σ</li>
-          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><line class="xmr-line we-zone" x1="0" x2="24" y1="0" y2="0"></line></svg>linie ±2σ / ±1σ (pogrubiona – linia danej reguły)</li>
-          <li class="legend-note"><svg viewBox="0 -8 36 16" aria-hidden="true"><rect class="we-third-1" x="0" y="-7" width="12" height="14"></rect><rect class="we-third-2" x="12" y="-7" width="12" height="14"></rect><rect class="we-third-3" x="24" y="-7" width="12" height="14"></rect></svg>strefy 1/3, 2/3, 3/3 odległości od średniej do granicy (reguły 1–3)</li>
-          <li class="legend-note"><svg viewBox="0 -8 24 16" aria-hidden="true"><rect class="we-band we-band-high" x="0" y="-7" width="24" height="14"></rect></svg>pasujące okno / seria</li>
-          <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="6.5" class="signal-ring"></circle></svg>dzień spełniający regułę</li>
-          <li class="legend-note"><svg viewBox="-8 -8 16 16" aria-hidden="true"><circle r="4" class="we-dim-swatch"></circle></svg>dzień poza regułą (przygaszony)</li>
-        </ul>
-
-        <article class="variation-rule" aria-labelledby="tp-we-title-1">
-          <h3 class="xmr-chart-title" id="tp-we-title-1"><span class="we-title-text">1. Punkt poza granicami procesu</span> <span class="we-badge" hidden></span></h3>
-          <p class="variation-desc">Wyróżniony punkt to dzień, w którym liczba dostarczonych zadań znalazła się poza naturalnymi granicami procesu. Sprawdź, co mogło wpłynąć na wyjątkowo wysoką lub niską przepustowość tego dnia (np. zbiorcze wydanie).</p>
-          <p class="warning variation-status" hidden></p>
-          <div class="chart xmr-chart" id="tp-we-chart-1"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
-          <div class="we-result" hidden>
-            <p class="we-verdict"></p>
-            <p class="we-list-title" hidden></p>
-            <ol class="we-task-list" hidden></ol>
-          </div>
-          <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
-        </article>
-
-        <article class="variation-rule" aria-labelledby="tp-we-title-2">
-          <h3 class="xmr-chart-title" id="tp-we-title-2"><span class="we-title-text">2. Dwa z trzech poza 2σ</span> <span class="we-badge" hidden></span></h3>
-          <p class="variation-desc">Sygnał pojawia się, gdy przynajmniej dwa z trzech kolejnych dni przekraczają linię 2σ po tej samej stronie średniej. Sprawdź, co je łączyło, np. zmianę priorytetów lub zależność od innego zespołu.</p>
-          <p class="warning variation-status" hidden></p>
-          <div class="chart xmr-chart" id="tp-we-chart-2"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
-          <div class="we-result" hidden>
-            <p class="we-verdict"></p>
-            <p class="we-list-title" hidden></p>
-            <ol class="we-task-list" hidden></ol>
-          </div>
-          <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
-        </article>
-
-        <article class="variation-rule" aria-labelledby="tp-we-title-3">
-          <h3 class="xmr-chart-title" id="tp-we-title-3"><span class="we-title-text">3. Cztery z pięciu poza 1σ</span> <span class="we-badge" hidden></span></h3>
-          <p class="variation-desc">Sygnał pojawia się, gdy przynajmniej cztery z pięciu kolejnych dni przekraczają linię 1σ po tej samej stronie średniej. Sprawdź, czy w tym okresie zmienił się sposób pracy albo rodzaj realizowanych zadań.</p>
-          <p class="warning variation-status" hidden></p>
-          <div class="chart xmr-chart" id="tp-we-chart-3"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
-          <div class="we-result" hidden>
-            <p class="we-verdict"></p>
-            <p class="we-list-title" hidden></p>
-            <ol class="we-task-list" hidden></ol>
-          </div>
-          <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
-        </article>
-
-        <article class="variation-rule" aria-labelledby="tp-we-title-4">
-          <h3 class="xmr-chart-title" id="tp-we-title-4"><span class="we-title-text">4. Osiem po jednej stronie średniej</span> <span class="we-badge" hidden></span></h3>
-          <p class="variation-desc">Osiem kolejnych dni po jednej stronie średniej może wskazywać na utrzymującą się zmianę tempa dostarczania, nawet gdy różnice są małe. Ósmy punkt pokazuje moment wykrycia. Sprawdź, co wydarzyło się przed początkiem serii.</p>
-          <p class="warning variation-status" hidden></p>
-          <div class="chart xmr-chart" id="tp-we-chart-4"><p class="empty" hidden></p><div class="tooltip" hidden></div></div>
-          <div class="we-result" hidden>
-            <p class="we-verdict"></p>
-            <p class="we-list-title" hidden></p>
-            <ol class="we-task-list" hidden></ol>
-          </div>
-          <details class="xmr-signals" hidden><summary></summary><ul></ul></details>
-        </article>
-
-        <p class="sr-only" id="tp-variation-live" aria-live="polite"></p>
-        <p class="hint">Najedź kursorem na punkt, aby zobaczyć szczegóły – ten sam dzień zaznacza się na wszystkich czterech wykresach. Przeciągnij myszą po wykresie, aby przybliżyć wybrane dni (dwuklik przywraca cały zakres). Przybliżenie zmienia tylko widok – granice i sygnały są liczone dla całej serii. Klawiatura: Tab, strzałki ← →, klawisze + / − / 0.</p>
-      </div>
-    </section>
     <footer class="source" id="tp-source"></footer>
     </div>
 

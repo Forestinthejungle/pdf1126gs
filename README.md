@@ -77,13 +77,19 @@ w dymkach.
 
 Zakładka **Tempo dostarczania** (bezpośredni link: <https://forestinthejungle.github.io/pdf1126gs/#tempo-dostarczania>)
 pokazuje liczbę zadań dostarczonych każdego dnia z pliku przepustowości (np. `Throughput Daily.xlsx`). Punktem na
-wykresach jest jeden dzień (w kolejności dat), a wartością – liczba dostarczonych zadań.
+wykresach jest jeden dzień albo – po wybraniu agregacji **Tydzień (pon–pt)** – jeden tydzień od poniedziałku do piątku
+(wartością jest suma zadań dostarczonych w dniach roboczych tego tygodnia; soboty i niedziele nigdy nie są liczone,
+tygodnie bez dni roboczych są pomijane). Zakładka pokazuje tylko karty **X** i **mR** (bez wykresów reguł Western Electric).
 
-- Karty **X** i **mR** oraz cztery wykresy **reguł Western Electric** są liczone dokładnie tak samo jak dla czasu
-  realizacji (średnia ± 2,66 · średni mR, górna granica mR 3,267 · średni mR, te same reguły sygnałów, dymki i przybliżenie).
+- Karty są liczone z **median** (Wheeler): linia środkowa X to mediana wartości, granice X to
+  mediana ± 3,145 · mediana mR, linia środkowa mR to mediana mR, a górna granica mR to 3,865 · mediana mR.
+  Przepustowość nie może być ujemna, więc dolna granica X jest ustawiana na 0, gdy wyliczona wartość jest ujemna
+  (wyliczona wartość jest pokazana w podsumowaniu), a oś Y zaczyna się od 0.
 - Filtry tej zakładki: pliki przepustowości (przy kilku plikach wartości z tego samego dnia są sumowane), okres
-  (pola „Od/Do” i szybkie przyciski 3, 6, 9… miesięcy) oraz przełącznik **Pomiń soboty i niedziele** (domyślnie wyłączony),
-  który usuwa weekendy z serii przed wyznaczeniem granic.
+  (pola „Od/Do” i szybkie przyciski 3, 6, 9… miesięcy), agregacja **Dzień / Tydzień (pon–pt)** oraz przełącznik
+  **Pomiń weekendy i święta w Polsce** (domyślnie włączony), który przed wyznaczeniem granic usuwa z serii soboty,
+  niedziele i ustawowe dni wolne w Polsce (1 i 6 stycznia, Wielkanoc i Poniedziałek Wielkanocny, 1 i 3 maja,
+  Zielone Świątki, Boże Ciało, 15 sierpnia, 1 i 11 listopada, 24 grudnia od 2025 r., 25 i 26 grudnia).
 - Plik przepustowości rozpoznawany jest po nagłówkach w pierwszym arkuszu: kolumna daty (`Data…`) i kolumna
   `Przepustowość` (także `Throughput`, `Dostarczone`). Taki plik nie trafia do zakładek czasu realizacji. Wiersze z błędną
   datą, ujemną lub nieliczbową wartością albo powtórzoną datą są pomijane i wymienione pod wykresami.
